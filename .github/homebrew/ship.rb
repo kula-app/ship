@@ -8,6 +8,10 @@ class Ship < Formula
       url "https://github.com/kula-app/ship/releases/download/v{{VERSION}}/ship-darwin-arm64"
       sha256 "{{SHA_DARWIN_ARM64}}"
     end
+    on_intel do
+      url "https://github.com/kula-app/ship/releases/download/v{{VERSION}}/ship-darwin-amd64"
+      sha256 "{{SHA_DARWIN_AMD64}}"
+    end
   end
 
   on_linux do
