@@ -6,10 +6,10 @@
   ],
   "keepUpdatedLabel": "renovate:keep-updated",
   "lockFileMaintenance": {
-    "automerge": false,
+    "automerge": true,
     "enabled": true,
     "extends": [
-      "schedule:daily"
+      "schedule:weekly"
     ]
   },
   "packageRules": [
@@ -39,9 +39,6 @@
     "gomodUpdateImportPaths"
   ],
   "rebaseLabel": "renovate:rebase",
-  "schedule": [
-    "* 1-4 * * 0,1,6"
-  ],
   "stopUpdatingLabel": "renovate:disabled",
   "timezone": "Europe/Vienna"
 }
