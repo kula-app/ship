@@ -1,0 +1,90 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Build artifacts
+dist/
+**/dist/
+# Allow CLI binaries for Docker builds
+!dist/ship-linux-*
+build/
+**/build/
+*.swp
+*.swo
+*~
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.pnpm-store
+
+# Template build artifacts that shouldn't be in Docker image
+# These are generated fresh during project generation
+template/*/node_modules/
+template/*/dist/
+template/*/.cache/
+template/*/coverage/
+
+# Platform-specific build artifacts
+# iOS build artifacts
+template/**/ios/.build/
+template/**/ios/build/
+template/**/ios/DerivedData/
+
+# Android build artifacts
+template/**/android/.gradle/
+template/**/android/.kotlin/
+template/**/android/build/
+template/**/android/app/build/
+template/**/android/local.properties
+
+# macOS files
+**/.DS_Store
+
+# Testing
+coverage/
+.nyc_output
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Deployment
+deploy/
+.pulumi/
+
+# Docs
+docs/
+*.md
+!README.md
+
+# Examples and tests
+examples/
+*_test.go
+testdata/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+.env
+.env.*
+!.env.example
+tmp/
+temp/
+*.log

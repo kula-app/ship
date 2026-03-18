@@ -1,0 +1,47 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "automerge": true,
+  "extends": [
+    "config:recommended"
+  ],
+  "keepUpdatedLabel": "renovate:keep-updated",
+  "lockFileMaintenance": {
+    "automerge": false,
+    "enabled": true,
+    "extends": [
+      "schedule:daily"
+    ]
+  },
+  "packageRules": [
+    {
+      "automerge": false,
+      "matchUpdateTypes": [
+        "major"
+      ]
+    },
+    {
+      "description": "Keep Go version in go.mod up to date automatically",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepNames": [
+        "go"
+      ],
+      "matchDepTypes": [
+        "golang"
+      ],
+      "rangeStrategy": "bump",
+      "automerge": true
+    }
+  ],
+  "postUpdateOptions": [
+    "gomodTidy",
+    "gomodUpdateImportPaths"
+  ],
+  "rebaseLabel": "renovate:rebase",
+  "schedule": [
+    "* 1-4 * * 0,1,6"
+  ],
+  "stopUpdatingLabel": "renovate:disabled",
+  "timezone": "Europe/Vienna"
+}
