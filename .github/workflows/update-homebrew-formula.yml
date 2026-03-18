@@ -43,9 +43,19 @@ jobs:
       - name: Extract SHA256 values
         id: sha
         run: |
-          echo "darwin_arm64=$(grep 'ship-darwin-arm64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "linux_amd64=$(grep 'ship-linux-amd64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-          echo "linux_arm64=$(grep 'ship-linux-arm64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          extract_sha() {
+            local sha
+            sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
+            if [ -z "$sha" ]; then
+              echo "Error: No checksum found for $1" >&2
+              exit 1
+            fi
+            echo "$sha"
+          }
+
+          echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
 
       - name: Generate GitHub App token
         id: app-token
