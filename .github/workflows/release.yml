@@ -266,6 +266,7 @@ jobs:
       - build-cli-binaries
       - build-cli-docker
       - release
+      - update-homebrew
     if: always()
     runs-on: ubuntu-latest
     steps:
