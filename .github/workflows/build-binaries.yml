@@ -1,0 +1,164 @@
+name: Build Binaries
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: "Version string to embed"
+        required: true
+        type: string
+      commit_sha:
+        description: "Commit SHA to embed"
+        required: true
+        type: string
+      build_date:
+        description: "Build date to embed"
+        required: true
+        type: string
+    secrets:
+      DEVELOPER_ID_P12_BASE64:
+        description: "Base64-encoded Developer ID certificate"
+        required: false
+      DEVELOPER_ID_PASSWORD:
+        description: "Password for the Developer ID certificate"
+        required: false
+      APPLE_NOTARIZATION_APPLE_ID_PASSWORD:
+        description: "App-specific password for Apple ID notarization"
+        required: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        include:
+          - platform: linux-amd64
+            goos: linux
+            goarch: amd64
+          - platform: linux-arm64
+            goos: linux
+            goarch: arm64
+          - platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+          - platform: windows-amd64
+            goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build CLI
+        run: |
+          BINARY="ship-${{ matrix.platform }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY="${BINARY}.exe"
+          fi
+
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build \
+            -ldflags "-s -w -extldflags '-static' \
+                      -X main.version=${{ inputs.version }} \
+                      -X main.commit=${{ inputs.commit_sha }} \
+                      -X main.date=${{ inputs.build_date }} \
+                      -X main.environment=production" \
+            -o "dist/${BINARY}" \
+            ./cmd/cli
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.platform }}
+          path: dist/ship-*
+          if-no-files-found: error
+          retention-days: 1
+
+  sign-and-notarize-macos:
+    name: Sign and Notarize macOS Binaries
+    # Only sign on non-fork pushes where secrets are available
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Download Darwin CLI artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: cli-darwin-*
+          merge-multiple: true
+
+      - name: Setup signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          KEYCHAIN_NAME="ship-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(openssl rand -hex 32)
+
+          security delete-keychain "$KEYCHAIN_NAME" 2>/dev/null || true
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_NAME"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+
+          CERTIFICATE_PATH=$RUNNER_TEMP/certificate.p12
+          echo "$CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_NAME" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+
+          security list-keychains -d user -s "$KEYCHAIN_NAME" $(security list-keychains -d user | sed s/\"//g)
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_NAME"
+          security default-keychain -s "$KEYCHAIN_NAME"
+
+          rm -f "$CERTIFICATE_PATH"
+
+          echo "KEYCHAIN_NAME=$KEYCHAIN_NAME" >> $GITHUB_ENV
+          echo "KEYCHAIN_PASSWORD=$KEYCHAIN_PASSWORD" >> $GITHUB_ENV
+
+      - name: Sign and notarize CLI darwin-arm64
+        env:
+          APPLE_ID: ${{ vars.APPLE_NOTARIZATION_APPLE_ID_USERNAME }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_NOTARIZATION_TEAM_ID }}
+          SIGNING_IDENTITY: ${{ vars.APPLE_NOTARIZATION_SIGNING_IDENTITY }}
+        run: |
+          cd dist
+
+          codesign --sign "$SIGNING_IDENTITY" \
+                   --options runtime \
+                   --timestamp \
+                   --force \
+                   --verbose \
+                   ship-darwin-arm64
+
+          codesign --verify --verbose ship-darwin-arm64
+
+          zip -q ship-darwin-arm64.zip ship-darwin-arm64
+          xcrun notarytool submit ship-darwin-arm64.zip \
+                       --apple-id "$APPLE_ID" \
+                       --password "$APPLE_ID_PASSWORD" \
+                       --team-id "$APPLE_TEAM_ID" \
+                       --wait
+          rm ship-darwin-arm64.zip
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_NAME" ]; then
+            security delete-keychain "$KEYCHAIN_NAME" || true
+          fi
+
+      - name: Upload signed CLI darwin-arm64
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-darwin-arm64
+          path: dist/ship-darwin-arm64
+          retention-days: 1
+          overwrite: true

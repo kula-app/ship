@@ -1,0 +1,173 @@
+name: Build CLI Docker Images
+
+on:
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Tag name for Docker images"
+        required: true
+        type: string
+      is_prerelease:
+        description: "Whether this is a prerelease"
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: Build CLI Docker Image (${{ matrix.platform.name }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: linux/amd64
+            tag: linux-amd64
+          - name: linux/arm64
+            tag: linux-arm64
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.platform.name }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: cli-${{ matrix.platform.tag }}
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: ls -lh dist/
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ github.event_name == 'pull_request' && '(dry run)' || 'and push' }} by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform.name }}
+          labels: |
+            org.opencontainers.image.title=Ship CLI
+            org.opencontainers.image.description=CLI for Shipable
+            maintainer=Kula <opensource@kula.app>
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.platform.tag }}
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache-${{ matrix.platform.tag }},mode=max
+          outputs: type=image,name=ghcr.io/${{ github.repository }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          set -e
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+          ls -la /tmp/digests
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-docker-digests-${{ matrix.platform.tag }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Create Manifest List
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    timeout-minutes: 10
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-merge
+      cancel-in-progress: true
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: cli-docker-digests-*
+          merge-multiple: true
+
+      - name: List digests
+        run: ls -la /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Create Docker Metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            docker.io/kula/ship
+            ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ inputs.tag_name }}
+            type=raw,value=latest,enable=${{ inputs.is_prerelease == 'true' }}
+            type=semver,pattern={{version}},value=${{ inputs.tag_name }},enable=${{ inputs.is_prerelease == 'false' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.tag_name }},enable=${{ inputs.is_prerelease == 'false' }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          digest_refs=""
+          for digest_file in *; do
+            digest_refs="$digest_refs ghcr.io/${{ github.repository }}@sha256:${digest_file}"
+          done
+          echo "Digest references: $digest_refs"
+
+          all_tags=$(printf '%s' "$DOCKER_METADATA_OUTPUT_JSON" | jq -cr '.tags | map("-t " + .) | join(" ")')
+          echo "Creating manifest list with tags: $all_tags"
+
+          docker buildx imagetools create $all_tags $digest_refs
+
+          first_tag=$(printf '%s' "$DOCKER_METADATA_OUTPUT_JSON" | jq -cr '.tags[0]')
+          docker buildx imagetools inspect "$first_tag"

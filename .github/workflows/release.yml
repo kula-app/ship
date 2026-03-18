@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      commit_sha: ${{ steps.metadata.outputs.commit_sha }}
+      build_date: ${{ steps.metadata.outputs.build_date }}
+      is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
+      release_name: ${{ steps.metadata.outputs.release_name }}
+      tag_name: ${{ steps.metadata.outputs.tag_name }}
+    steps:
+      - name: Extract version and metadata
+        id: metadata
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "🔍 Pull Request detected - running in DRY RUN mode"
+            COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            VERSION="pr-${{ github.event.pull_request.number }}-${COMMIT_SHA}"
+            IS_PRERELEASE="true"
+            RELEASE_NAME="PR #${{ github.event.pull_request.number }} Test Build"
+            TAG_NAME="pr-${{ github.event.pull_request.number }}"
+          elif echo "${{ github.ref }}" | grep -q "^refs/tags/v"; then
+            VERSION=$(echo "${{ github.ref }}" | sed 's|refs/tags/v||')
+            IS_PRERELEASE="false"
+            RELEASE_NAME="v${VERSION}"
+            TAG_NAME="v${VERSION}"
+          else
+            COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            VERSION="latest-${COMMIT_SHA}"
+            IS_PRERELEASE="true"
+            RELEASE_NAME="Latest Development Build"
+            TAG_NAME="latest"
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          echo "build_date=${{ github.event.head_commit.timestamp }}" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+          echo "Version: $VERSION"
+          echo "Commit: ${{ github.sha }}"
+          echo "Commit Date: ${{ github.event.head_commit.timestamp }}"
+          echo "Is Prerelease: $IS_PRERELEASE"
+          echo "Release Name: $RELEASE_NAME"
+          echo "Tag Name: $TAG_NAME"
+
+  build-cli-binaries:
+    name: Build CLI Binaries
+    needs: prepare
+    uses: ./.github/workflows/build-binaries.yml
+    with:
+      version: ${{ needs.prepare.outputs.version }}
+      commit_sha: ${{ needs.prepare.outputs.commit_sha }}
+      build_date: ${{ needs.prepare.outputs.build_date }}
+    secrets: inherit
+
+  build-cli-docker:
+    name: Build CLI Docker Images
+    needs: [prepare, build-cli-binaries]
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    uses: ./.github/workflows/build-cli-docker.yml
+    with:
+      tag_name: ${{ needs.prepare.outputs.tag_name }}
+      is_prerelease: ${{ needs.prepare.outputs.is_prerelease }}
+    secrets: inherit
+
+  release:
+    name: Create Release
+    needs: [prepare, build-cli-binaries, build-cli-docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download CLI artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: cli-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum ship-* > checksums.txt
+          cat checksums.txt
+
+      - name: Prepare release notes
+        run: |
+          if [ "${{ needs.prepare.outputs.is_prerelease }}" = "true" ]; then
+            TEMPLATE=".github/pre-release-template.md"
+          else
+            TEMPLATE=".github/release-template.md"
+          fi
+
+          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
+              -e 's/{{COMMIT_SHA}}/${{ needs.prepare.outputs.commit_sha }}/g' \
+              -e 's/{{BUILD_DATE}}/${{ needs.prepare.outputs.build_date }}/g' \
+              -e 's|{{REPOSITORY}}|${{ github.repository }}|g' \
+              "$TEMPLATE" > dist/release-notes.md
+          cat dist/release-notes.md
+
+      - name: Delete existing latest release (pre-release only)
+        if: needs.prepare.outputs.is_prerelease == 'true' && github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+
+      - name: Create Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ needs.prepare.outputs.release_name }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          body_path: dist/release-notes.md
+          files: |
+            dist/ship-linux-amd64
+            dist/ship-linux-arm64
+            dist/ship-darwin-arm64
+            dist/ship-windows-amd64.exe
+            dist/checksums.txt
+          draft: false
+          prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
+
+  release-required-check:
+    name: Release - Required Check
+    needs:
+      - prepare
+      - build-cli-binaries
+      - build-cli-docker
+      - release
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for failures
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "One of the release jobs has failed." && exit 1
