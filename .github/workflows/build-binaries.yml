@@ -40,6 +40,9 @@ jobs:
           - platform: linux-arm64
             goos: linux
             goarch: arm64
+          - platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
           - platform: darwin-arm64
             goos: darwin
             goarch: arm64
@@ -148,6 +151,32 @@ jobs:
                        --wait
           rm ship-darwin-arm64.zip
 
+      - name: Sign and notarize CLI darwin-amd64
+        env:
+          APPLE_ID: ${{ vars.APPLE_NOTARIZATION_APPLE_ID_USERNAME }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_NOTARIZATION_TEAM_ID }}
+          SIGNING_IDENTITY: ${{ vars.APPLE_NOTARIZATION_SIGNING_IDENTITY }}
+        run: |
+          cd dist
+
+          codesign --sign "$SIGNING_IDENTITY" \
+                   --options runtime \
+                   --timestamp \
+                   --force \
+                   --verbose \
+                   ship-darwin-amd64
+
+          codesign --verify --verbose ship-darwin-amd64
+
+          zip -q ship-darwin-amd64.zip ship-darwin-amd64
+          xcrun notarytool submit ship-darwin-amd64.zip \
+                       --apple-id "$APPLE_ID" \
+                       --password "$APPLE_ID_PASSWORD" \
+                       --team-id "$APPLE_TEAM_ID" \
+                       --wait
+          rm ship-darwin-amd64.zip
+
       - name: Cleanup keychain
         if: always()
         run: |
@@ -160,5 +189,13 @@ jobs:
         with:
           name: cli-darwin-arm64
           path: dist/ship-darwin-arm64
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload signed CLI darwin-amd64
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-darwin-amd64
+          path: dist/ship-darwin-amd64
           retention-days: 1
           overwrite: true

@@ -144,6 +144,7 @@ jobs:
           files: |
             dist/ship-linux-amd64
             dist/ship-linux-arm64
+            dist/ship-darwin-amd64
             dist/ship-darwin-arm64
             dist/ship-windows-amd64.exe
             dist/checksums.txt
@@ -184,6 +185,7 @@ jobs:
             echo "$sha"
           }
 
+          echo "darwin_amd64=$(extract_sha ship-darwin-amd64)" >> $GITHUB_OUTPUT
           echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
           echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
           echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
@@ -209,6 +211,7 @@ jobs:
           set -eo pipefail
           mkdir -p homebrew-tap/Formula
           sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
+              -e 's/{{SHA_DARWIN_AMD64}}/${{ steps.checksums.outputs.darwin_amd64 }}/g' \
               -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
               -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
               -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
