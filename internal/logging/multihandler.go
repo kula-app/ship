@@ -10,7 +10,6 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
-
 // MultiHandler sends log records to multiple handlers simultaneously.
 // This allows us to log to both Sentry and terminal when Sentry is enabled,
 // providing both error tracking and local development visibility.

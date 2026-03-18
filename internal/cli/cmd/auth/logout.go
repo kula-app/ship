@@ -12,9 +12,9 @@ import (
 // newLogoutCmd creates the "auth logout" command.
 func newLogoutCmd(cliName string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "logout",
-		Short: "Log out of Shipable",
-		Long:  `Remove locally stored authentication credentials.`,
+		Use:     "logout",
+		Short:   "Log out of Shipable",
+		Long:    `Remove locally stored authentication credentials.`,
 		Example: fmt.Sprintf(`  %s auth logout`, cliName),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLogout(cmd, args, cliName)
