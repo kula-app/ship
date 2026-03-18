@@ -8,9 +8,6 @@ class Ship < Formula
       url "https://github.com/kula-app/ship/releases/download/v{{VERSION}}/ship-darwin-arm64"
       sha256 "{{SHA_DARWIN_ARM64}}"
     end
-    on_intel do
-      odie "ship is not available for Intel macOS. Apple Silicon (ARM64) is required."
-    end
   end
 
   on_linux do

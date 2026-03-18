@@ -150,6 +150,89 @@ jobs:
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
 
+  update-homebrew:
+    name: Update Homebrew Tap
+    needs: [prepare, release]
+    if: needs.prepare.outputs.is_prerelease == 'false' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/homebrew
+
+      - name: Extract SHA256 values from release
+        id: checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+
+          gh release download "${{ needs.prepare.outputs.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "checksums.txt" \
+            --dir .
+
+          extract_sha() {
+            local sha
+            sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
+            if [ -z "$sha" ]; then
+              echo "Error: No checksum found for $1" >&2
+              exit 1
+            fi
+            echo "$sha"
+          }
+
+          echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KULA_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.KULA_RELEASE_BOT_PRIVATE_KEY }}
+          repositories: homebrew-tap
+          owner: kula-app
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: kula-app/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Generate formula
+        run: |
+          set -eo pipefail
+          mkdir -p homebrew-tap/Formula
+          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
+              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
+              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
+              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
+              .github/homebrew/ship.rb > homebrew-tap/Formula/ship.rb
+
+      - name: Create PR on Homebrew tap
+        id: create-pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+          branch: update-ship-${{ needs.prepare.outputs.version }}
+          commit-message: "feat: update ship to ${{ needs.prepare.outputs.version }}"
+          title: "feat: update ship to ${{ needs.prepare.outputs.version }}"
+          body: "Automated formula update for ship v${{ needs.prepare.outputs.version }}."
+
+      - name: Enable auto-merge
+        if: steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}" \
+            --repo kula-app/homebrew-tap
+
   release-required-check:
     name: Release - Required Check
     needs:
@@ -157,6 +240,7 @@ jobs:
       - build-cli-binaries
       - build-cli-docker
       - release
+      - update-homebrew
     if: always()
     runs-on: ubuntu-latest
     steps:
