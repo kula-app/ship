@@ -188,19 +188,6 @@ jobs:
           echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
           echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
 
-      - name: Generate formula
-        id: formula
-        run: |
-          set -eo pipefail
-          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
-              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
-              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
-              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
-              .github/homebrew/ship.rb > ship.rb
-
-          # Base64 encode for GitHub API
-          echo "content=$(base64 -w 0 ship.rb)" >> $GITHUB_OUTPUT
-
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v2
@@ -210,66 +197,32 @@ jobs:
           repositories: homebrew-tap
           owner: kula-app
 
-      - name: Create PR on Homebrew tap
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: kula-app/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Generate formula
         run: |
           set -eo pipefail
+          mkdir -p homebrew-tap/Formula
+          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
+              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
+              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
+              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
+              .github/homebrew/ship.rb > homebrew-tap/Formula/ship.rb
 
-          VERSION="${{ needs.prepare.outputs.version }}"
-          REPO="kula-app/homebrew-tap"
-          BRANCH="update-ship-${VERSION}"
-          FILE_PATH="Formula/ship.rb"
-
-          # Get the default branch SHA
-          DEFAULT_BRANCH=$(gh api "repos/${REPO}" --jq '.default_branch')
-          BASE_SHA=$(gh api "repos/${REPO}/git/ref/heads/${DEFAULT_BRANCH}" --jq '.object.sha')
-
-          # Get existing file SHA (if any) for the commit
-          EXISTING_SHA=$(gh api "repos/${REPO}/contents/${FILE_PATH}" --jq '.sha' 2>/dev/null || echo "")
-
-          # Create or force-update branch
-          if gh api "repos/${REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
-            gh api "repos/${REPO}/git/refs/heads/${BRANCH}" \
-              -X PATCH -f "sha=${BASE_SHA}" -F "force=true"
-          else
-            gh api "repos/${REPO}/git/refs" \
-              -f "ref=refs/heads/${BRANCH}" \
-              -f "sha=${BASE_SHA}"
-          fi
-
-          # Create or update file on the branch
-          # Get file SHA from the branch (may differ from default branch)
-          BRANCH_FILE_SHA=$(gh api "repos/${REPO}/contents/${FILE_PATH}?ref=${BRANCH}" --jq '.sha' 2>/dev/null || echo "")
-          if [ -n "$BRANCH_FILE_SHA" ]; then
-            gh api "repos/${REPO}/contents/${FILE_PATH}" \
-              -X PUT \
-              -f "message=feat: update ship to ${VERSION}" \
-              -f "content=${{ steps.formula.outputs.content }}" \
-              -f "branch=${BRANCH}" \
-              -f "sha=${BRANCH_FILE_SHA}"
-          else
-            gh api "repos/${REPO}/contents/${FILE_PATH}" \
-              -X PUT \
-              -f "message=feat: update ship to ${VERSION}" \
-              -f "content=${{ steps.formula.outputs.content }}" \
-              -f "branch=${BRANCH}"
-          fi
-
-          # Create PR if one doesn't already exist, then enable auto-merge
-          EXISTING_PR=$(gh pr list --repo "${REPO}" --head "${BRANCH}" --json url --jq '.[0].url' 2>/dev/null || echo "")
-          if [ -n "$EXISTING_PR" ]; then
-            PR_URL="$EXISTING_PR"
-          else
-            PR_URL=$(gh pr create \
-              --repo "${REPO}" \
-              --base "${DEFAULT_BRANCH}" \
-              --head "${BRANCH}" \
-              --title "feat: update ship to ${VERSION}" \
-              --body "Automated formula update for ship v${VERSION}.")
-          fi
-
-          gh pr merge "${PR_URL}" --auto --squash
+      - name: Create PR on Homebrew tap
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+          branch: update-ship-${{ needs.prepare.outputs.version }}
+          commit-message: "feat: update ship to ${{ needs.prepare.outputs.version }}"
+          title: "feat: update ship to ${{ needs.prepare.outputs.version }}"
+          body: "Automated formula update for ship v${{ needs.prepare.outputs.version }}."
 
   release-required-check:
     name: Release - Required Check
