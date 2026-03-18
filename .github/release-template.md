@@ -2,7 +2,13 @@
 
 ### Installation
 
-#### macOS
+#### macOS (Homebrew)
+
+```bash
+brew install kula-app/tap/ship
+```
+
+#### macOS (Manual)
 
 ```bash
 curl -L -o ship https://github.com/{{REPOSITORY}}/releases/download/v{{VERSION}}/ship-darwin-arm64
