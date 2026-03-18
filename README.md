@@ -99,3 +99,7 @@ Run `make help` for the full list. Key commands:
 | `make analyze`  | Static analysis and security checks |
 | `make format`   | Format code                         |
 | `make generate` | Generate ent ORM code               |
+
+## Acknowledgments
+
+This project's structure and tooling is heavily inspired by [sentry-cli](https://github.com/getsentry/sentry-cli) :heart:
