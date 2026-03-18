@@ -43,6 +43,7 @@ jobs:
       - name: Extract SHA256 values
         id: sha
         run: |
+          set -eo pipefail
           extract_sha() {
             local sha
             sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
