@@ -228,6 +228,14 @@ jobs:
           # Get existing file SHA (if any) for the commit
           EXISTING_SHA=$(gh api "repos/${REPO}/contents/${FILE_PATH}" --jq '.sha' 2>/dev/null || echo "")
 
+          # Clean up any existing branch/PR from a previous run
+          EXISTING_PR=$(gh pr list --repo "${REPO}" --head "${BRANCH}" --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING_PR" ]; then
+            gh pr close "$EXISTING_PR" --repo "${REPO}" --delete-branch || true
+          else
+            gh api "repos/${REPO}/git/refs/heads/${BRANCH}" -X DELETE 2>/dev/null || true
+          fi
+
           # Create branch
           gh api "repos/${REPO}/git/refs" \
             -f "ref=refs/heads/${BRANCH}" \
