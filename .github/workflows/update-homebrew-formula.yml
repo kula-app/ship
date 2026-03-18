@@ -63,51 +63,20 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           path: homebrew-tap
 
-      - name: Update formula
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          SHA_DARWIN_ARM64: ${{ steps.sha.outputs.darwin_arm64 }}
-          SHA_LINUX_AMD64: ${{ steps.sha.outputs.linux_amd64 }}
-          SHA_LINUX_ARM64: ${{ steps.sha.outputs.linux_arm64 }}
+      - name: Checkout source repo
+        uses: actions/checkout@v6
+        with:
+          path: source
+          sparse-checkout: .github/homebrew
+
+      - name: Update formula from template
         run: |
           mkdir -p homebrew-tap/Formula
-          cat > homebrew-tap/Formula/ship.rb << FORMULA_EOF
-          class Ship < Formula
-            desc "CLI for Shipable app deployment workflows"
-            homepage "https://github.com/kula-app/ship"
-            version "${VERSION}"
-
-            on_macos do
-              on_arm do
-                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-darwin-arm64"
-                sha256 "${SHA_DARWIN_ARM64}"
-              end
-              on_intel do
-                odie "ship is not available for Intel macOS. Apple Silicon (ARM64) is required."
-              end
-            end
-
-            on_linux do
-              on_arm do
-                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-linux-arm64"
-                sha256 "${SHA_LINUX_ARM64}"
-              end
-              on_intel do
-                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-linux-amd64"
-                sha256 "${SHA_LINUX_AMD64}"
-              end
-            end
-
-            def install
-              binary = Dir["ship-*"].first
-              bin.install binary => "ship"
-            end
-
-            test do
-              assert_match version.to_s, shell_output("#{bin}/ship --version")
-            end
-          end
-          FORMULA_EOF
+          sed -e 's/{{VERSION}}/${{ steps.version.outputs.version }}/g' \
+              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.sha.outputs.darwin_arm64 }}/g' \
+              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.sha.outputs.linux_amd64 }}/g' \
+              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.sha.outputs.linux_arm64 }}/g' \
+              source/.github/homebrew/ship.rb > homebrew-tap/Formula/ship.rb
 
       - name: Commit and push
         working-directory: homebrew-tap
