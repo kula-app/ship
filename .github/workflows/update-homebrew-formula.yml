@@ -1,0 +1,120 @@
+name: Update Homebrew Formula
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g., v1.2.3)"
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    name: Update Homebrew Tap
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event.release.prerelease == false && startsWith(github.event.release.tag_name, 'v'))
+    timeout-minutes: 10
+    steps:
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ steps.version.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "checksums.txt" \
+            --dir .
+
+      - name: Extract SHA256 values
+        id: sha
+        run: |
+          echo "darwin_arm64=$(grep 'ship-darwin-arm64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(grep 'ship-linux-amd64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(grep 'ship-linux-arm64$' checksums.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KULA_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.KULA_RELEASE_BOT_PRIVATE_KEY }}
+          repositories: homebrew-tap
+          owner: kula-app
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: kula-app/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA_DARWIN_ARM64: ${{ steps.sha.outputs.darwin_arm64 }}
+          SHA_LINUX_AMD64: ${{ steps.sha.outputs.linux_amd64 }}
+          SHA_LINUX_ARM64: ${{ steps.sha.outputs.linux_arm64 }}
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/ship.rb << FORMULA_EOF
+          class Ship < Formula
+            desc "CLI for Shipable app deployment workflows"
+            homepage "https://github.com/kula-app/ship"
+            version "${VERSION}"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-darwin-arm64"
+                sha256 "${SHA_DARWIN_ARM64}"
+              end
+              on_intel do
+                odie "ship is not available for Intel macOS. Apple Silicon (ARM64) is required."
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-linux-arm64"
+                sha256 "${SHA_LINUX_ARM64}"
+              end
+              on_intel do
+                url "https://github.com/kula-app/ship/releases/download/v${VERSION}/ship-linux-amd64"
+                sha256 "${SHA_LINUX_AMD64}"
+              end
+            end
+
+            def install
+              binary = Dir["ship-*"].first
+              bin.install binary => "ship"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/ship --version")
+            end
+          end
+          FORMULA_EOF
+
+      - name: Commit and push
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ship.rb
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "feat: update ship to ${{ steps.version.outputs.version }}"
+          git push
