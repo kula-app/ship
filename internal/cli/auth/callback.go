@@ -11,6 +11,7 @@ import (
 type CallbackResult struct {
 	Code  string
 	Error string
+	State string
 }
 
 const (
@@ -39,6 +40,7 @@ func StartCallbackServer(ctx context.Context) (<-chan CallbackResult, error) {
 	mux.HandleFunc("/callback", func(w http.ResponseWriter, r *http.Request) {
 		code := r.URL.Query().Get("code")
 		errParam := r.URL.Query().Get("error")
+		state := r.URL.Query().Get("state")
 
 		if errParam != "" {
 			w.Header().Set("Content-Type", "text/html")
@@ -48,7 +50,7 @@ func StartCallbackServer(ctx context.Context) (<-chan CallbackResult, error) {
 <p>Error: %s</p>
 <p>You can close this window.</p>
 </body></html>`, errParam)
-			resultChan <- CallbackResult{Error: errParam}
+			resultChan <- CallbackResult{Error: errParam, State: state}
 			return
 		}
 
@@ -60,7 +62,7 @@ func StartCallbackServer(ctx context.Context) (<-chan CallbackResult, error) {
 <p>No authorization code received.</p>
 <p>You can close this window.</p>
 </body></html>`)
-			resultChan <- CallbackResult{Error: "no authorization code received"}
+			resultChan <- CallbackResult{Error: "no authorization code received", State: state}
 			return
 		}
 
@@ -70,7 +72,7 @@ func StartCallbackServer(ctx context.Context) (<-chan CallbackResult, error) {
 <h1>Authentication Successful</h1>
 <p>You can close this window and return to the terminal.</p>
 </body></html>`)
-		resultChan <- CallbackResult{Code: code}
+		resultChan <- CallbackResult{Code: code, State: state}
 	})
 
 	server := &http.Server{Handler: mux}
