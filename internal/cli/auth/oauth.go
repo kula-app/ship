@@ -13,6 +13,9 @@ const (
 	// ClientID is the registered OAuth client ID for the ship CLI.
 	// This is a public client (no secret) using PKCE.
 	ClientID = "02c0cda0-835b-4c94-b090-0c64157b0ea7"
+
+	// DefaultScope is the set of user scopes requested by the CLI.
+	DefaultScope = "email profile"
 )
 
 // AuthEndpoints holds the discovered OAuth authorization and token endpoints.

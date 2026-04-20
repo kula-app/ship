@@ -61,6 +61,11 @@ func runLogin(cmd *cobra.Command, _ []string, _ string) error {
 	}
 	codeChallenge := auth.GenerateCodeChallenge(codeVerifier)
 
+	state, err := auth.GenerateState()
+	if err != nil {
+		return fmt.Errorf("failed to generate OAuth state: %w", err)
+	}
+
 	// Start local callback server
 	ctx, cancel := context.WithTimeout(cmd.Context(), loginTimeout)
 	defer cancel()
@@ -71,7 +76,7 @@ func runLogin(cmd *cobra.Command, _ []string, _ string) error {
 	}
 
 	// Build authorization URL
-	authURL, err := buildAuthURL(endpoints.AuthorizationEndpoint, codeChallenge)
+	authURL, err := buildAuthURL(endpoints.AuthorizationEndpoint, codeChallenge, state)
 	if err != nil {
 		return fmt.Errorf("failed to build authorization URL: %w", err)
 	}
@@ -91,8 +96,14 @@ func runLogin(cmd *cobra.Command, _ []string, _ string) error {
 	// Wait for callback
 	select {
 	case result := <-resultChan:
+		if result.State != "" && result.State != state {
+			return fmt.Errorf("authentication failed: invalid OAuth state")
+		}
 		if result.Error != "" {
 			return fmt.Errorf("authentication failed: %s", result.Error)
+		}
+		if result.State == "" {
+			return fmt.Errorf("authentication failed: missing OAuth state")
 		}
 
 		// Exchange code for tokens
@@ -116,7 +127,7 @@ func runLogin(cmd *cobra.Command, _ []string, _ string) error {
 }
 
 // buildAuthURL constructs the full authorization URL with PKCE parameters.
-func buildAuthURL(authEndpoint, codeChallenge string) (string, error) {
+func buildAuthURL(authEndpoint, codeChallenge, state string) (string, error) {
 	u, err := url.Parse(authEndpoint)
 	if err != nil {
 		return "", err
@@ -128,6 +139,8 @@ func buildAuthURL(authEndpoint, codeChallenge string) (string, error) {
 	q.Set("redirect_uri", auth.RedirectURI)
 	q.Set("code_challenge", codeChallenge)
 	q.Set("code_challenge_method", "S256")
+	q.Set("scope", auth.DefaultScope)
+	q.Set("state", state)
 	u.RawQuery = q.Encode()
 
 	return u.String(), nil
