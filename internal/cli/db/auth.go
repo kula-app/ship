@@ -9,23 +9,65 @@ import (
 
 const authRowID = 1
 
-// GetAuthToken reads the stored access token from the database.
-// Returns an empty string and no error if no token is stored.
-func GetAuthToken() (string, error) {
+const authExpirySkew = time.Minute
+
+// AuthCredentials contains the locally stored OAuth credentials.
+type AuthCredentials struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    int64
+	IssuedAt     int64
+}
+
+// IsExpired reports whether the access token should be refreshed before use.
+func (c AuthCredentials) IsExpired(now time.Time) bool {
+	if c.ExpiresAt == 0 {
+		return true
+	}
+	return now.Add(authExpirySkew).UnixMilli() >= c.ExpiresAt
+}
+
+// GetAuthCredentials reads the stored OAuth credentials from the database.
+// Returns nil and no error if no credentials are stored.
+func GetAuthCredentials() (*AuthCredentials, error) {
 	client, err := GetClient()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	authEntity, err := client.Auth.Get(context.Background(), authRowID)
 	if ent.IsNotFound(err) {
-		return "", nil
+		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	credentials := &AuthCredentials{
+		AccessToken:  authEntity.AccessToken,
+		RefreshToken: authEntity.RefreshToken,
+	}
+	if authEntity.ExpiresAt != nil {
+		credentials.ExpiresAt = *authEntity.ExpiresAt
+	}
+	if authEntity.IssuedAt != nil {
+		credentials.IssuedAt = *authEntity.IssuedAt
+	}
+
+	return credentials, nil
+}
+
+// GetAuthToken reads the stored access token from the database.
+// Returns an empty string and no error if no token is stored.
+func GetAuthToken() (string, error) {
+	credentials, err := GetAuthCredentials()
 	if err != nil {
 		return "", err
 	}
-
-	return authEntity.AccessToken, nil
+	if credentials == nil {
+		return "", nil
+	}
+	return credentials.AccessToken, nil
 }
 
 // SetAuthToken stores the access token, refresh token, and expiry in the database.
@@ -82,7 +124,7 @@ func ClearAuth() error {
 	return err
 }
 
-// IsAuthenticated checks whether a valid access token is stored.
+// IsAuthenticated checks whether local credentials are stored.
 func IsAuthenticated() bool {
 	token, err := GetAuthToken()
 	if err != nil {
