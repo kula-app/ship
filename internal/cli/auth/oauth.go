@@ -103,9 +103,24 @@ func ExchangeCode(tokenEndpoint, code, codeVerifier, redirectURI string) (*Token
 		"client_id":     {ClientID},
 	}
 
+	return postTokenRequest(tokenEndpoint, data)
+}
+
+// RefreshToken exchanges a refresh token for a new access token.
+func RefreshToken(tokenEndpoint, refreshToken string) (*TokenResponse, error) {
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {ClientID},
+	}
+
+	return postTokenRequest(tokenEndpoint, data)
+}
+
+func postTokenRequest(tokenEndpoint string, data url.Values) (*TokenResponse, error) {
 	resp, err := http.PostForm(tokenEndpoint, data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to exchange authorization code: %w", err)
+		return nil, fmt.Errorf("failed to request token: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -121,6 +136,12 @@ func ExchangeCode(tokenEndpoint, code, codeVerifier, redirectURI string) (*Token
 	var tokenResp TokenResponse
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		return nil, fmt.Errorf("failed to parse token response: %w", err)
+	}
+	if tokenResp.AccessToken == "" {
+		return nil, fmt.Errorf("token response missing access_token")
+	}
+	if tokenResp.ExpiresIn <= 0 {
+		return nil, fmt.Errorf("token response missing expires_in")
 	}
 
 	return &tokenResp, nil
