@@ -33,6 +33,8 @@ ship auth login
 ship apps list
 
 # Publish an app
+ship gritch
+ship publish gritch
 ship publish --app-id <uuid>
 ```
 
@@ -55,12 +57,19 @@ ship publish --app-id <uuid>
 
 | Command                                  | Description              |
 | ---------------------------------------- | ------------------------ |
+| `ship <slug>`                            | Full publish by slug     |
+| `ship publish <slug>`                    | Full publish by slug     |
 | `ship publish --app-id <id>`             | Full publish             |
 | `ship publish metadata --app-id <id>`    | Publish metadata only    |
+| `ship publish metadata <slug>`           | Publish metadata only    |
 | `ship publish screenshots --app-id <id>` | Publish screenshots only |
+| `ship publish screenshots <slug>`        | Publish screenshots only |
 | `ship publish app --app-id <id>`         | Publish app binary only  |
+| `ship publish app <slug>`                | Publish app binary only  |
 | `ship publish status --app-id <id>`      | Show publish job status  |
+| `ship publish status <slug>`             | Show publish job status  |
 | `ship publish validate --app-id <id>`    | Pre-publish validation   |
+| `ship publish validate <slug>`           | Pre-publish validation   |
 
 All publish commands accept `--platform ios,android` to target specific platforms.
 

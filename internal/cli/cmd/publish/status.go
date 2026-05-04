@@ -7,8 +7,6 @@ import (
 
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
-
-	"github.com/kula-app/ship/internal/cli/config"
 )
 
 type taskStatus struct {
@@ -22,19 +20,24 @@ type publishStatusResponse struct {
 
 func newStatusCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "status",
-		Short:   "Show publish job status",
-		Example: fmt.Sprintf(`  %s publish status --app-id <uuid>`, cliName),
+		Use:   "status [slug]",
+		Short: "Show publish job status",
+		Example: fmt.Sprintf(`  %s publish status --app-id <uuid>
+  %s publish status gritch`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runStatus(c)
+			return runStatus(c, args)
 		},
 	}
 }
 
-func runStatus(c *cobra.Command) error {
-	appID, _ := c.Flags().GetString("app-id")
+func runStatus(c *cobra.Command, args []string) error {
+	appID, err := resolveAppID(c, args)
+	if err != nil {
+		return err
+	}
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := authenticatedClient(c)
 	if err != nil {
 		return err
 	}

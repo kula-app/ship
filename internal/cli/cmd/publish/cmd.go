@@ -6,8 +6,6 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-
-	"github.com/kula-app/ship/internal/cli/config"
 )
 
 type publishJobRequest struct {
@@ -22,20 +20,21 @@ type publishJobResponse struct {
 // NewPublishCmd creates and returns the publish command with all subcommands.
 func NewPublishCmd(cliName string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "publish",
+		Use:   "publish [slug]",
 		Short: "Publish an app",
 		Long:  `Trigger a full publish workflow for a Shipable app. Use subcommands for partial publishes.`,
 		Example: fmt.Sprintf(`  %s publish --app-id <uuid>
+  %s publish gritch
   %s publish --app-id <uuid> --platform ios
-  %s publish metadata --app-id <uuid>`, cliName, cliName, cliName),
+  %s publish metadata gritch`, cliName, cliName, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPublish(c)
+			return runPublish(c, args)
 		},
 	}
 
-	cmd.PersistentFlags().String("app-id", "", "App ID (required)")
+	cmd.PersistentFlags().String("app-id", "", "App ID (required unless slug argument is provided)")
 	cmd.PersistentFlags().StringSlice("platform", nil, "Target platforms (ios, android); omit for all")
-	_ = cmd.MarkPersistentFlagRequired("app-id")
 
 	cmd.AddCommand(newMetadataCmd(cliName))
 	cmd.AddCommand(newScreenshotsCmd(cliName))
@@ -46,10 +45,17 @@ func NewPublishCmd(cliName string) *cobra.Command {
 	return cmd
 }
 
-func runPublish(c *cobra.Command) error {
-	appID, _ := c.Flags().GetString("app-id")
+func RunRootPublish(c *cobra.Command, args []string) error {
+	return runPublish(c, args)
+}
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+func runPublish(c *cobra.Command, args []string) error {
+	appID, err := resolveAppID(c, args)
+	if err != nil {
+		return err
+	}
+
+	client, err := authenticatedClient(c)
 	if err != nil {
 		return err
 	}
@@ -68,41 +74,50 @@ func runPublish(c *cobra.Command) error {
 
 func newMetadataCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "metadata",
-		Short:   "Publish metadata only",
-		Example: fmt.Sprintf(`  %s publish metadata --app-id <uuid>`, cliName),
+		Use:   "metadata [slug]",
+		Short: "Publish metadata only",
+		Example: fmt.Sprintf(`  %s publish metadata --app-id <uuid>
+  %s publish metadata gritch`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "metadata")
+			return runPartialPublish(c, args, "metadata")
 		},
 	}
 }
 
 func newScreenshotsCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "screenshots",
-		Short:   "Publish screenshots only",
-		Example: fmt.Sprintf(`  %s publish screenshots --app-id <uuid>`, cliName),
+		Use:   "screenshots [slug]",
+		Short: "Publish screenshots only",
+		Example: fmt.Sprintf(`  %s publish screenshots --app-id <uuid>
+  %s publish screenshots gritch`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "screenshots")
+			return runPartialPublish(c, args, "screenshots")
 		},
 	}
 }
 
 func newAppCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "app",
-		Short:   "Publish app binary only",
-		Example: fmt.Sprintf(`  %s publish app --app-id <uuid>`, cliName),
+		Use:   "app [slug]",
+		Short: "Publish app binary only",
+		Example: fmt.Sprintf(`  %s publish app --app-id <uuid>
+  %s publish app gritch`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "app")
+			return runPartialPublish(c, args, "app")
 		},
 	}
 }
 
-func runPartialPublish(c *cobra.Command, variant string) error {
-	appID, _ := c.Flags().GetString("app-id")
+func runPartialPublish(c *cobra.Command, args []string, variant string) error {
+	appID, err := resolveAppID(c, args)
+	if err != nil {
+		return err
+	}
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := authenticatedClient(c)
 	if err != nil {
 		return err
 	}
