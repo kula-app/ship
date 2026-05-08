@@ -1,6 +1,6 @@
 module github.com/kula-app/ship
 
-go 1.26.2
+go 1.26.3
 
 tool (
 	entgo.io/ent/cmd/ent
