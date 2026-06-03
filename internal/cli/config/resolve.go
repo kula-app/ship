@@ -67,7 +67,10 @@ func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
 	}
 
 	if credentials.RefreshToken == "" {
-		return nil, fmt.Errorf("credentials expired — run '%s auth login' first", rootName)
+		if apiKey := ResolveAPIKey(cmd); apiKey != "" {
+			return api.NewAPIKeyClient(apiURL, apiKey), nil
+		}
+		return nil, fmt.Errorf("credentials expired — run '%s auth login' first or set SHIP_API_KEY", rootName)
 	}
 
 	endpoints, err := auth.DiscoverAuthEndpoints(apiURL)
