@@ -49,7 +49,7 @@ func NewPublishCmd(cliName string) *cobra.Command {
 func runPublish(c *cobra.Command) error {
 	appID, _ := c.Flags().GetString("app-id")
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := config.AuthenticatedClient(c)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func newAppCmd(cliName string) *cobra.Command {
 func runPartialPublish(c *cobra.Command, variant string) error {
 	appID, _ := c.Flags().GetString("app-id")
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := config.AuthenticatedClient(c)
 	if err != nil {
 		return err
 	}

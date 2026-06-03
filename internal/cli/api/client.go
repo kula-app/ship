@@ -13,6 +13,7 @@ import (
 type Client struct {
 	apiURL     string
 	token      string
+	apiKey     string
 	httpClient *http.Client
 }
 
@@ -25,6 +26,15 @@ func NewClient(apiURL, token string) *Client {
 	}
 }
 
+// NewAPIKeyClient creates a new API client authenticated with an API key.
+func NewAPIKeyClient(apiURL, apiKey string) *Client {
+	return &Client{
+		apiURL:     apiURL,
+		apiKey:     apiKey,
+		httpClient: &http.Client{},
+	}
+}
+
 // Get sends an authenticated GET request to the given path and returns the response body.
 func (c *Client) Get(path string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, c.apiURL+path, nil)
@@ -32,7 +42,7 @@ func (c *Client) Get(path string) ([]byte, error) {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	c.setAuthHeaders(req)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -64,7 +74,7 @@ func (c *Client) Post(path string, payload any) ([]byte, error) {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+c.token)
+	c.setAuthHeaders(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
@@ -83,4 +93,14 @@ func (c *Client) Post(path string, payload any) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+func (c *Client) setAuthHeaders(req *http.Request) {
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		return
+	}
+	if c.apiKey != "" {
+		req.Header.Set("X-API-Key", c.apiKey)
+	}
 }

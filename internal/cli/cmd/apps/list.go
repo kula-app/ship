@@ -31,7 +31,7 @@ func newListCmd(cliName string) *cobra.Command {
 }
 
 func runList(c *cobra.Command) error {
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := config.AuthenticatedClient(c)
 	if err != nil {
 		return err
 	}

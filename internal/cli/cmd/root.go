@@ -29,6 +29,7 @@ func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
 	}
 
 	// Global flags
+	rootCmd.PersistentFlags().String("api-key", "", "API key for authentication (env: SHIP_API_KEY)")
 	rootCmd.PersistentFlags().String("log-format", "text", "Log format: text or json")
 
 	// Add subcommands

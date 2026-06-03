@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/kula-app/ship/internal/cli/auth"
 	"github.com/kula-app/ship/internal/cli/db"
 )
@@ -71,7 +73,7 @@ func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
 		t.Fatalf("set expired auth token: %v", err)
 	}
 
-	client, err := AuthenticatedClient("ship")
+	client, err := AuthenticatedClient(testRootCommand(""))
 	if err != nil {
 		t.Fatalf("authenticated client: %v", err)
 	}
@@ -103,4 +105,154 @@ func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
 	if credentials.RefreshToken != "new-refresh-token" {
 		t.Fatalf("stored refresh token = %q, want new-refresh-token", credentials.RefreshToken)
 	}
+}
+
+func TestAuthenticatedClientUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHIP_API_KEY", "env-api-key")
+	defer db.CloseDB()
+
+	var sawResource bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want empty", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "env-api-key" {
+			t.Errorf("X-API-Key = %q, want env-api-key", got)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("SHIPABLE_API_URL", server.URL)
+
+	client, err := AuthenticatedClient(testRootCommand(""))
+	if err != nil {
+		t.Fatalf("authenticated client: %v", err)
+	}
+
+	if _, err := client.Get("/resource"); err != nil {
+		t.Fatalf("get resource: %v", err)
+	}
+	if !sawResource {
+		t.Fatal("expected resource request")
+	}
+}
+
+func TestAuthenticatedClientAPIKeyFlagOverridesEnv(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHIP_API_KEY", "env-api-key")
+	defer db.CloseDB()
+
+	var sawResource bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-API-Key"); got != "flag-api-key" {
+			t.Errorf("X-API-Key = %q, want flag-api-key", got)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("SHIPABLE_API_URL", server.URL)
+
+	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
+	if err != nil {
+		t.Fatalf("authenticated client: %v", err)
+	}
+
+	if _, err := client.Get("/resource"); err != nil {
+		t.Fatalf("get resource: %v", err)
+	}
+	if !sawResource {
+		t.Fatal("expected resource request")
+	}
+}
+
+func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefreshToken(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHIP_API_KEY", "env-api-key")
+	defer db.CloseDB()
+
+	if err := db.SetAuthToken("expired-access-token", "", -60); err != nil {
+		t.Fatalf("set expired auth token: %v", err)
+	}
+
+	var sawResource bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want empty", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "env-api-key" {
+			t.Errorf("X-API-Key = %q, want env-api-key", got)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("SHIPABLE_API_URL", server.URL)
+
+	client, err := AuthenticatedClient(testRootCommand(""))
+	if err != nil {
+		t.Fatalf("authenticated client: %v", err)
+	}
+
+	if _, err := client.Get("/resource"); err != nil {
+		t.Fatalf("get resource: %v", err)
+	}
+	if !sawResource {
+		t.Fatal("expected resource request")
+	}
+}
+
+func TestAuthenticatedClientSessionTakesPrecedenceOverAPIKey(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHIP_API_KEY", "env-api-key")
+	defer db.CloseDB()
+
+	if err := db.SetAuthToken("stored-access-token", "stored-refresh-token", 3600); err != nil {
+		t.Fatalf("set auth token: %v", err)
+	}
+
+	var sawResource bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer stored-access-token" {
+			t.Errorf("Authorization = %q, want stored bearer token", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "" {
+			t.Errorf("X-API-Key = %q, want empty", got)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("SHIPABLE_API_URL", server.URL)
+
+	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
+	if err != nil {
+		t.Fatalf("authenticated client: %v", err)
+	}
+
+	if _, err := client.Get("/resource"); err != nil {
+		t.Fatalf("get resource: %v", err)
+	}
+	if !sawResource {
+		t.Fatal("expected resource request")
+	}
+}
+
+func testRootCommand(apiKey string) *cobra.Command {
+	cmd := &cobra.Command{Use: "ship"}
+	cmd.PersistentFlags().String("api-key", "", "API key")
+	if apiKey != "" {
+		_ = cmd.PersistentFlags().Set("api-key", apiKey)
+	}
+	return cmd
 }

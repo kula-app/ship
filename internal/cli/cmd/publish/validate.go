@@ -23,7 +23,7 @@ func newValidateCmd(cliName string) *cobra.Command {
 func runValidate(c *cobra.Command) error {
 	appID, _ := c.Flags().GetString("app-id")
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := config.AuthenticatedClient(c)
 	if err != nil {
 		return err
 	}
