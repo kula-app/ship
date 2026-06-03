@@ -9,7 +9,7 @@ tool (
 )
 
 require (
-	entgo.io/ent v0.14.6-0.20260317212542-e0ba79d911cc
+	entgo.io/ent v0.14.6
 	github.com/getsentry/sentry-go v0.43.0
 	github.com/getsentry/sentry-go/slog v0.43.0
 	github.com/lmittmann/tint v1.1.3
