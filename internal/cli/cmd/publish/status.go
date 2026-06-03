@@ -34,7 +34,7 @@ func newStatusCmd(cliName string) *cobra.Command {
 func runStatus(c *cobra.Command) error {
 	appID, _ := c.Flags().GetString("app-id")
 
-	client, err := config.AuthenticatedClient(c.Root().Name())
+	client, err := config.AuthenticatedClient(c)
 	if err != nil {
 		return err
 	}

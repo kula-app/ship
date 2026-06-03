@@ -70,8 +70,15 @@ func GetClient() (*ent.Client, error) {
 
 // CloseDB closes the database connection if open.
 func CloseDB() error {
-	if instance != nil {
-		return instance.Close()
+	if instance == nil {
+		once = sync.Once{}
+		initErr = nil
+		return nil
 	}
-	return nil
+
+	err := instance.Close()
+	instance = nil
+	once = sync.Once{}
+	initErr = nil
+	return err
 }
