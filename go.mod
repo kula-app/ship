@@ -10,7 +10,7 @@ tool (
 
 require (
 	entgo.io/ent v0.14.6
-	github.com/getsentry/sentry-go v0.43.0
+	github.com/getsentry/sentry-go v0.46.2
 	github.com/getsentry/sentry-go/slog v0.43.0
 	github.com/lmittmann/tint v1.1.3
 	github.com/mattn/go-isatty v0.0.22
