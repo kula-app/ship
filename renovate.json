@@ -31,6 +31,8 @@
       "matchDepTypes": [
         "golang"
       ],
+      "minimumReleaseAge": "0 days",
+      "prPriority": 10,
       "rangeStrategy": "bump",
       "automerge": true
     },
@@ -38,7 +40,10 @@
       "description": "Group Go toolchain updates (golang Docker image + go directive in go.mod) into a single PR",
       "groupName": "go toolchain",
       "matchDatasources": ["docker", "golang-version"],
-      "matchDepNames": ["go", "golang"]
+      "matchDepNames": ["go", "golang"],
+      "minimumReleaseAge": "0 days",
+      "prPriority": 10,
+      "automerge": true
     }
   ],
   "postUpdateOptions": [
