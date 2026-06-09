@@ -28,13 +28,23 @@ func ResolveAPIURL() string {
 	return DefaultAPIURL
 }
 
+// apiKeyFlag returns the value of the explicit --api-key flag, or "" if unset.
+func apiKeyFlag(cmd *cobra.Command) string {
+	if cmd == nil {
+		return ""
+	}
+	apiKey, err := cmd.Root().PersistentFlags().GetString("api-key")
+	if err != nil {
+		return ""
+	}
+	return apiKey
+}
+
 // ResolveAPIKey determines the API key from the global flag or environment.
+// The explicit --api-key flag takes priority over the SHIP_API_KEY env var.
 func ResolveAPIKey(cmd *cobra.Command) string {
-	if cmd != nil {
-		apiKey, err := cmd.Root().PersistentFlags().GetString("api-key")
-		if err == nil && apiKey != "" {
-			return apiKey
-		}
+	if apiKey := apiKeyFlag(cmd); apiKey != "" {
+		return apiKey
 	}
 
 	return os.Getenv("SHIP_API_KEY")
@@ -47,6 +57,12 @@ func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
 	rootName := "ship"
 	if cmd != nil {
 		rootName = cmd.Root().Name()
+	}
+
+	// An explicit --api-key flag always wins, even over a valid session token.
+	// The SHIP_API_KEY env var only applies as a fallback when no session exists.
+	if apiKey := apiKeyFlag(cmd); apiKey != "" {
+		return api.NewAPIKeyClient(apiURL, apiKey), nil
 	}
 
 	credentials, err := db.GetAuthCredentials()

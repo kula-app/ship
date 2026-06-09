@@ -210,7 +210,7 @@ func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefresh
 	}
 }
 
-func TestAuthenticatedClientSessionTakesPrecedenceOverAPIKey(t *testing.T) {
+func TestAuthenticatedClientSessionTakesPrecedenceOverEnvAPIKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -226,6 +226,44 @@ func TestAuthenticatedClientSessionTakesPrecedenceOverAPIKey(t *testing.T) {
 		}
 		if got := r.Header.Get("X-API-Key"); got != "" {
 			t.Errorf("X-API-Key = %q, want empty", got)
+		}
+		sawResource = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	t.Setenv("SHIPABLE_API_URL", server.URL)
+
+	client, err := AuthenticatedClient(testRootCommand(""))
+	if err != nil {
+		t.Fatalf("authenticated client: %v", err)
+	}
+
+	if _, err := client.Get("/resource"); err != nil {
+		t.Fatalf("get resource: %v", err)
+	}
+	if !sawResource {
+		t.Fatal("expected resource request")
+	}
+}
+
+func TestAuthenticatedClientAPIKeyFlagOverridesSession(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("SHIP_API_KEY", "env-api-key")
+	defer db.CloseDB()
+
+	if err := db.SetAuthToken("stored-access-token", "stored-refresh-token", 3600); err != nil {
+		t.Fatalf("set auth token: %v", err)
+	}
+
+	var sawResource bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Errorf("Authorization = %q, want empty", got)
+		}
+		if got := r.Header.Get("X-API-Key"); got != "flag-api-key" {
+			t.Errorf("X-API-Key = %q, want flag-api-key", got)
 		}
 		sawResource = true
 		w.Header().Set("Content-Type", "application/json")
