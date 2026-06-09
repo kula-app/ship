@@ -3,7 +3,8 @@
 ## Package Manager
 
 - **Go** with Makefile
-- Run `make help` to discover all available commands
+- Run `make help` to discover available commands — always use it to explore the
+  Makefile; never `cat`/`grep`/read the Makefile directly to find targets
 - Always use Makefile targets — never raw `go` or other tool commands
 
 ## Commit Attribution
