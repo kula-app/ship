@@ -26,16 +26,17 @@ func NewPublishCmd(cliName string) *cobra.Command {
 		Short: "Publish an app",
 		Long:  `Trigger a full publish workflow for a Shipable app. Use subcommands for partial publishes.`,
 		Example: fmt.Sprintf(`  %s publish --app-id <uuid>
-  %s publish --app-id <uuid> --platform ios
+  %s publish --app-slug <slug> --platform ios
   %s publish metadata --app-id <uuid>`, cliName, cliName, cliName),
 		RunE: func(c *cobra.Command, args []string) error {
 			return runPublish(c)
 		},
 	}
 
-	cmd.PersistentFlags().String("app-id", "", "App ID (required)")
+	cmd.PersistentFlags().String("app-id", "", "App ID (UUID); env: SHIP_APP_ID")
+	cmd.PersistentFlags().String("app-slug", "", "App slug, alternative to --app-id; env: SHIP_APP_SLUG")
 	cmd.PersistentFlags().StringSlice("platform", nil, "Target platforms (ios, android); omit for all")
-	_ = cmd.MarkPersistentFlagRequired("app-id")
+	cmd.MarkFlagsMutuallyExclusive("app-id", "app-slug")
 
 	cmd.AddCommand(newMetadataCmd(cliName))
 	cmd.AddCommand(newScreenshotsCmd(cliName))
@@ -47,7 +48,10 @@ func NewPublishCmd(cliName string) *cobra.Command {
 }
 
 func runPublish(c *cobra.Command) error {
-	appID, _ := c.Flags().GetString("app-id")
+	appID, err := config.ResolveAppIdentifier(c)
+	if err != nil {
+		return err
+	}
 
 	client, err := config.AuthenticatedClient(c)
 	if err != nil {
@@ -100,7 +104,10 @@ func newAppCmd(cliName string) *cobra.Command {
 }
 
 func runPartialPublish(c *cobra.Command, variant string) error {
-	appID, _ := c.Flags().GetString("app-id")
+	appID, err := config.ResolveAppIdentifier(c)
+	if err != nil {
+		return err
+	}
 
 	client, err := config.AuthenticatedClient(c)
 	if err != nil {

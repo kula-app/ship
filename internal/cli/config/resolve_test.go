@@ -307,6 +307,121 @@ func TestResolveAPIURLFallsBackToEnv(t *testing.T) {
 	}
 }
 
+func TestResolveAppIdentifierAppIDFlag(t *testing.T) {
+	cmd := testAppCommand()
+	if err := cmd.Flags().Set("app-id", "11111111-1111-1111-1111-111111111111"); err != nil {
+		t.Fatalf("set app-id flag: %v", err)
+	}
+
+	got, err := ResolveAppIdentifier(cmd)
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "11111111-1111-1111-1111-111111111111" {
+		t.Fatalf("ResolveAppIdentifier = %q, want app-id flag value", got)
+	}
+}
+
+func TestResolveAppIdentifierAppSlugFlag(t *testing.T) {
+	cmd := testAppCommand()
+	if err := cmd.Flags().Set("app-slug", "my-app"); err != nil {
+		t.Fatalf("set app-slug flag: %v", err)
+	}
+
+	got, err := ResolveAppIdentifier(cmd)
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "my-app" {
+		t.Fatalf("ResolveAppIdentifier = %q, want app-slug flag value", got)
+	}
+}
+
+func TestResolveAppIdentifierMutuallyExclusiveFlags(t *testing.T) {
+	cmd := testAppCommand()
+	if err := cmd.Flags().Set("app-id", "11111111-1111-1111-1111-111111111111"); err != nil {
+		t.Fatalf("set app-id flag: %v", err)
+	}
+	if err := cmd.Flags().Set("app-slug", "my-app"); err != nil {
+		t.Fatalf("set app-slug flag: %v", err)
+	}
+
+	if _, err := ResolveAppIdentifier(cmd); err == nil {
+		t.Fatal("expected error when both --app-id and --app-slug are set")
+	}
+}
+
+func TestResolveAppIdentifierFlagOverridesEnv(t *testing.T) {
+	t.Setenv("SHIP_APP_ID", "env-id")
+	t.Setenv("SHIP_APP_SLUG", "env-slug")
+
+	cmd := testAppCommand()
+	if err := cmd.Flags().Set("app-slug", "flag-slug"); err != nil {
+		t.Fatalf("set app-slug flag: %v", err)
+	}
+
+	got, err := ResolveAppIdentifier(cmd)
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "flag-slug" {
+		t.Fatalf("ResolveAppIdentifier = %q, want flag value over env", got)
+	}
+}
+
+func TestResolveAppIdentifierEnvAppID(t *testing.T) {
+	t.Setenv("SHIP_APP_ID", "env-id")
+
+	got, err := ResolveAppIdentifier(testAppCommand())
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "env-id" {
+		t.Fatalf("ResolveAppIdentifier = %q, want SHIP_APP_ID value", got)
+	}
+}
+
+func TestResolveAppIdentifierEnvAppSlugFallback(t *testing.T) {
+	t.Setenv("SHIP_APP_SLUG", "env-slug")
+
+	got, err := ResolveAppIdentifier(testAppCommand())
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "env-slug" {
+		t.Fatalf("ResolveAppIdentifier = %q, want SHIP_APP_SLUG value", got)
+	}
+}
+
+func TestResolveAppIdentifierEnvAppIDBeatsSlug(t *testing.T) {
+	t.Setenv("SHIP_APP_ID", "env-id")
+	t.Setenv("SHIP_APP_SLUG", "env-slug")
+
+	got, err := ResolveAppIdentifier(testAppCommand())
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "env-id" {
+		t.Fatalf("ResolveAppIdentifier = %q, want SHIP_APP_ID to win over SHIP_APP_SLUG", got)
+	}
+}
+
+func TestResolveAppIdentifierMissing(t *testing.T) {
+	t.Setenv("SHIP_APP_ID", "")
+	t.Setenv("SHIP_APP_SLUG", "")
+
+	if _, err := ResolveAppIdentifier(testAppCommand()); err == nil {
+		t.Fatal("expected error when no app identifier is provided")
+	}
+}
+
+func testAppCommand() *cobra.Command {
+	cmd := &cobra.Command{Use: "publish"}
+	cmd.Flags().String("app-id", "", "App ID")
+	cmd.Flags().String("app-slug", "", "App slug")
+	return cmd
+}
+
 func testRootCommand(apiKey string) *cobra.Command {
 	cmd := &cobra.Command{Use: "ship"}
 	cmd.PersistentFlags().String("api-url", "", "API base URL")

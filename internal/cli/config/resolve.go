@@ -58,6 +58,44 @@ func ResolveAPIKey(cmd *cobra.Command) string {
 	return os.Getenv("SHIP_API_KEY")
 }
 
+// ResolveAppIdentifier determines the target app's path identifier — either a
+// UUID app ID or a slug — from flags or environment, in priority order:
+//
+//  1. --app-id flag
+//  2. --app-slug flag
+//  3. SHIP_APP_ID env var
+//  4. SHIP_APP_SLUG env var
+//
+// The resolved value is sent verbatim in the request path; the API accepts a
+// UUID or a slug in the same position. The --app-id and --app-slug flags are
+// mutually exclusive. An error is returned if no identifier is provided.
+func ResolveAppIdentifier(cmd *cobra.Command) (string, error) {
+	var idFlag, slugFlag string
+	if cmd != nil {
+		idFlag, _ = cmd.Flags().GetString("app-id")
+		slugFlag, _ = cmd.Flags().GetString("app-slug")
+	}
+
+	if idFlag != "" && slugFlag != "" {
+		return "", fmt.Errorf("--app-id and --app-slug are mutually exclusive")
+	}
+	if idFlag != "" {
+		return idFlag, nil
+	}
+	if slugFlag != "" {
+		return slugFlag, nil
+	}
+
+	if envID := os.Getenv("SHIP_APP_ID"); envID != "" {
+		return envID, nil
+	}
+	if envSlug := os.Getenv("SHIP_APP_SLUG"); envSlug != "" {
+		return envSlug, nil
+	}
+
+	return "", fmt.Errorf("app identifier required: pass --app-id or --app-slug, or set SHIP_APP_ID or SHIP_APP_SLUG")
+}
+
 // AuthenticatedClient returns an API client using stored credentials.
 // Returns an error if the user is not authenticated.
 func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
