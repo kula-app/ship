@@ -45,7 +45,7 @@ func runLogin(cmd *cobra.Command, _ []string, _ string) error {
 	}
 
 	// Resolve API URL from config
-	apiURL := config.ResolveAPIURL()
+	apiURL := config.ResolveAPIURL(cmd)
 
 	// Discover OAuth endpoints
 	logger.Info("Discovering authentication endpoints...")
