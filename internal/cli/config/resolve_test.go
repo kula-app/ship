@@ -271,7 +271,7 @@ func TestAuthenticatedClientAPIKeyFlagOverridesSession(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 
 	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
 	if err != nil {
