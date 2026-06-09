@@ -15,9 +15,17 @@ import (
 
 const DefaultAPIURL = "https://api.shipable.dev"
 
-// ResolveAPIURL determines the API URL from environment or database settings.
-func ResolveAPIURL() string {
-	if envURL := os.Getenv("SHIPABLE_API_URL"); envURL != "" {
+// ResolveAPIURL determines the API URL from the global flag, environment, or
+// database settings, in that order of priority.
+func ResolveAPIURL(cmd *cobra.Command) string {
+	if cmd != nil {
+		apiURL, err := cmd.Root().PersistentFlags().GetString("api-url")
+		if err == nil && apiURL != "" {
+			return apiURL
+		}
+	}
+
+	if envURL := os.Getenv("SHIP_API_URL"); envURL != "" {
 		return envURL
 	}
 
@@ -43,7 +51,7 @@ func ResolveAPIKey(cmd *cobra.Command) string {
 // AuthenticatedClient returns an API client using stored credentials.
 // Returns an error if the user is not authenticated.
 func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
-	apiURL := ResolveAPIURL()
+	apiURL := ResolveAPIURL(cmd)
 	rootName := "ship"
 	if cmd != nil {
 		rootName = cmd.Root().Name()

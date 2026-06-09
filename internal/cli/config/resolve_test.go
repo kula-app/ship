@@ -66,7 +66,7 @@ func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
 	defer server.Close()
 	serverURL = server.URL
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 	defer db.CloseDB()
 
 	if err := db.SetAuthToken("expired-access-token", "stored-refresh-token", -60); err != nil {
@@ -126,7 +126,7 @@ func TestAuthenticatedClientUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 
 	client, err := AuthenticatedClient(testRootCommand(""))
 	if err != nil {
@@ -157,7 +157,7 @@ func TestAuthenticatedClientAPIKeyFlagOverridesEnv(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 
 	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
 	if err != nil {
@@ -195,7 +195,7 @@ func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefresh
 	}))
 	defer server.Close()
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 
 	client, err := AuthenticatedClient(testRootCommand(""))
 	if err != nil {
@@ -233,7 +233,7 @@ func TestAuthenticatedClientSessionTakesPrecedenceOverAPIKey(t *testing.T) {
 	}))
 	defer server.Close()
 
-	t.Setenv("SHIPABLE_API_URL", server.URL)
+	t.Setenv("SHIP_API_URL", server.URL)
 
 	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
 	if err != nil {
@@ -248,8 +248,30 @@ func TestAuthenticatedClientSessionTakesPrecedenceOverAPIKey(t *testing.T) {
 	}
 }
 
+func TestResolveAPIURLFlagOverridesEnv(t *testing.T) {
+	t.Setenv("SHIP_API_URL", "https://env.example.com")
+
+	cmd := testRootCommand("")
+	if err := cmd.PersistentFlags().Set("api-url", "https://flag.example.com"); err != nil {
+		t.Fatalf("set api-url flag: %v", err)
+	}
+
+	if got := ResolveAPIURL(cmd); got != "https://flag.example.com" {
+		t.Fatalf("ResolveAPIURL = %q, want flag value", got)
+	}
+}
+
+func TestResolveAPIURLFallsBackToEnv(t *testing.T) {
+	t.Setenv("SHIP_API_URL", "https://env.example.com")
+
+	if got := ResolveAPIURL(testRootCommand("")); got != "https://env.example.com" {
+		t.Fatalf("ResolveAPIURL = %q, want env value", got)
+	}
+}
+
 func testRootCommand(apiKey string) *cobra.Command {
 	cmd := &cobra.Command{Use: "ship"}
+	cmd.PersistentFlags().String("api-url", "", "API base URL")
 	cmd.PersistentFlags().String("api-key", "", "API key")
 	if apiKey != "" {
 		_ = cmd.PersistentFlags().Set("api-key", apiKey)
