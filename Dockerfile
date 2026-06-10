@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM alpine:3.23
+FROM alpine:3.24
 
 # Metadata
 LABEL maintainer="kula app GmbH <opensource@kula.app>"
