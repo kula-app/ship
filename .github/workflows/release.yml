@@ -42,8 +42,17 @@ jobs:
             RELEASE_NAME="v${VERSION}"
             TAG_NAME="v${VERSION}"
           else
-            COMMIT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-            VERSION="latest-${COMMIT_SHA}"
+            # Pre-release ("nightly") from the main branch.
+            # Derive a monotonically increasing, Homebrew-friendly version from
+            # the commit timestamp. The rolling `latest` download URL never
+            # changes, so `version` is what `brew upgrade` compares - a strictly
+            # increasing value guarantees every new main build is seen as newer.
+            BUILD_TS="${{ github.event.head_commit.timestamp }}"
+            if [ -n "$BUILD_TS" ]; then
+              VERSION=$(date -u -d "$BUILD_TS" +'%Y.%m.%d.%H%M%S')
+            else
+              VERSION=$(date -u +'%Y.%m.%d.%H%M%S')
+            fi
             IS_PRERELEASE="true"
             RELEASE_NAME="Latest Development Build"
             TAG_NAME="latest"
@@ -238,6 +247,95 @@ jobs:
           gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}" \
             --repo kula-app/homebrew-tap
 
+  update-homebrew-nightly:
+    name: Update Homebrew Tap (nightly)
+    needs: [prepare, release]
+    # Only on pushes to main - publishes/updates the `ship-nightly` formula.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/homebrew
+
+      - name: Extract SHA256 values from release
+        id: checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eo pipefail
+
+          gh release download "${{ needs.prepare.outputs.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "checksums.txt" \
+            --dir .
+
+          extract_sha() {
+            local sha
+            sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
+            if [ -z "$sha" ]; then
+              echo "Error: No checksum found for $1" >&2
+              exit 1
+            fi
+            echo "$sha"
+          }
+
+          echo "darwin_amd64=$(extract_sha ship-darwin-amd64)" >> $GITHUB_OUTPUT
+          echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
+          echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
+          echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.KULA_RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.KULA_RELEASE_BOT_PRIVATE_KEY }}
+          repositories: homebrew-tap
+          owner: kula-app
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v6
+        with:
+          repository: kula-app/homebrew-tap
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+
+      - name: Generate formula
+        run: |
+          set -eo pipefail
+          mkdir -p homebrew-tap/Formula
+          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
+              -e 's/{{SHA_DARWIN_AMD64}}/${{ steps.checksums.outputs.darwin_amd64 }}/g' \
+              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
+              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
+              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
+              .github/homebrew/ship-nightly.rb > homebrew-tap/Formula/ship-nightly.rb
+
+      - name: Create PR on Homebrew tap
+        id: create-pr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          path: homebrew-tap
+          branch: update-ship-nightly
+          delete-branch: true
+          commit-message: "feat: update ship-nightly to ${{ needs.prepare.outputs.version }}"
+          committer: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
+          author: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
+          title: "feat: update ship-nightly to ${{ needs.prepare.outputs.version }}"
+          body: "Automated nightly formula update for ship (build ${{ needs.prepare.outputs.version }}, commit ${{ needs.prepare.outputs.commit_sha }})."
+
+      - name: Enable auto-merge
+        if: steps.create-pr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}" \
+            --repo kula-app/homebrew-tap
+
   release-required-check:
     name: Release - Required Check
     needs:
@@ -246,6 +344,7 @@ jobs:
       - build-cli-docker
       - release
       - update-homebrew
+      - update-homebrew-nightly
     if: always()
     runs-on: ubuntu-latest
     steps:
