@@ -25,6 +25,10 @@ class Ship < Formula
     end
   end
 
+  # Reciprocal of the conflict declared in ship-nightly: only one channel can
+  # be linked at a time since both install a ship binary.
+  conflicts_with "ship-nightly", because: "both install a ship binary"
+
   def install
     binary = Dir["ship-*"].first
     bin.install binary => "ship"
