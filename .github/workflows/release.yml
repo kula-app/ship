@@ -24,6 +24,8 @@ jobs:
       is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
       release_name: ${{ steps.metadata.outputs.release_name }}
       tag_name: ${{ steps.metadata.outputs.tag_name }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      publish_tag: ${{ steps.metadata.outputs.publish_tag }}
     steps:
       - name: Extract version and metadata
         id: metadata
@@ -36,11 +38,16 @@ jobs:
             IS_PRERELEASE="true"
             RELEASE_NAME="PR #${{ github.event.pull_request.number }} Test Build"
             TAG_NAME="pr-${{ github.event.pull_request.number }}"
+            # No publish channel - PRs never trigger the registry publisher.
+            CHANNEL=""
+            PUBLISH_TAG=""
           elif echo "${{ github.ref }}" | grep -q "^refs/tags/v"; then
             VERSION=$(echo "${{ github.ref }}" | sed 's|refs/tags/v||')
             IS_PRERELEASE="false"
             RELEASE_NAME="v${VERSION}"
             TAG_NAME="v${VERSION}"
+            CHANNEL="stable"
+            PUBLISH_TAG="v${VERSION}"
           else
             # Pre-release ("nightly") from the main branch.
             # Derive a monotonically increasing, Homebrew-friendly version from
@@ -56,6 +63,11 @@ jobs:
             IS_PRERELEASE="true"
             RELEASE_NAME="Latest Development Build"
             TAG_NAME="latest"
+            # The registry publisher derives the package version from the tag and
+            # downloads assets by tag, so nightlies are published from a
+            # version-pinned `v<version>` prerelease (not the rolling `latest`).
+            CHANNEL="nightly"
+            PUBLISH_TAG="v${VERSION}"
           fi
 
           echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -64,6 +76,8 @@ jobs:
           echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
           echo "release_name=$RELEASE_NAME" >> $GITHUB_OUTPUT
           echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          echo "publish_tag=$PUBLISH_TAG" >> $GITHUB_OUTPUT
 
           echo "Version: $VERSION"
           echo "Commit: ${{ github.sha }}"
@@ -71,6 +85,8 @@ jobs:
           echo "Is Prerelease: $IS_PRERELEASE"
           echo "Release Name: $RELEASE_NAME"
           echo "Tag Name: $TAG_NAME"
+          echo "Channel: $CHANNEL"
+          echo "Publish Tag: $PUBLISH_TAG"
 
   build-cli-binaries:
     name: Build CLI Binaries
@@ -160,181 +176,56 @@ jobs:
           draft: false
           prerelease: ${{ needs.prepare.outputs.is_prerelease == 'true' }}
 
-  update-homebrew:
-    name: Update Homebrew Tap
-    needs: [prepare, release]
-    if: needs.prepare.outputs.is_prerelease == 'false' && github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      # Nightlies also publish a version-pinned `v<version>` prerelease alongside
+      # the rolling `latest` release above. The registry publisher derives the
+      # package version from the tag and downloads assets by tag, so it needs an
+      # immutable, version-named release to consume.
+      - name: Create version-pinned nightly release
+        if: needs.prepare.outputs.channel == 'nightly' && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v3
         with:
-          sparse-checkout: .github/homebrew
+          name: ${{ needs.prepare.outputs.release_name }} (${{ needs.prepare.outputs.publish_tag }})
+          tag_name: ${{ needs.prepare.outputs.publish_tag }}
+          body_path: dist/release-notes.md
+          files: |
+            dist/ship-linux-amd64
+            dist/ship-linux-arm64
+            dist/ship-darwin-amd64
+            dist/ship-darwin-arm64
+            dist/ship-windows-amd64.exe
+            dist/checksums.txt
+          draft: false
+          prerelease: true
 
-      - name: Extract SHA256 values from release
-        id: checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eo pipefail
-
-          gh release download "${{ needs.prepare.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "checksums.txt" \
-            --dir .
-
-          extract_sha() {
-            local sha
-            sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
-            if [ -z "$sha" ]; then
-              echo "Error: No checksum found for $1" >&2
-              exit 1
-            fi
-            echo "$sha"
-          }
-
-          echo "darwin_amd64=$(extract_sha ship-darwin-amd64)" >> $GITHUB_OUTPUT
-          echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
-          echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
-          echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
-
+  trigger-publisher:
+    name: Trigger Release Publisher
+    needs: [prepare, release]
+    # Dispatch the kula-app/publisher workflow that turns this GitHub Release
+    # into signed rpm/deb/Homebrew/raw packages on packages.kula.app. Replaces
+    # the in-repo Homebrew tap automation. Skipped for PR dry runs (no channel).
+    if: needs.prepare.outputs.channel != '' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ vars.KULA_RELEASE_BOT_APP_ID }}
           private-key: ${{ secrets.KULA_RELEASE_BOT_PRIVATE_KEY }}
-          repositories: homebrew-tap
+          repositories: publisher
           owner: kula-app
 
-      - name: Checkout Homebrew tap
-        uses: actions/checkout@v6
-        with:
-          repository: kula-app/homebrew-tap
-          token: ${{ steps.app-token.outputs.token }}
-          path: homebrew-tap
-
-      - name: Generate formula
-        run: |
-          set -eo pipefail
-          mkdir -p homebrew-tap/Formula
-          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
-              -e 's/{{SHA_DARWIN_AMD64}}/${{ steps.checksums.outputs.darwin_amd64 }}/g' \
-              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
-              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
-              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
-              .github/homebrew/ship.rb > homebrew-tap/Formula/ship.rb
-
-      - name: Create PR on Homebrew tap
-        id: create-pr
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          path: homebrew-tap
-          branch: update-ship-${{ needs.prepare.outputs.version }}
-          commit-message: "feat: update ship to ${{ needs.prepare.outputs.version }}"
-          committer: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
-          author: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
-          title: "feat: update ship to ${{ needs.prepare.outputs.version }}"
-          body: "Automated formula update for ship v${{ needs.prepare.outputs.version }}."
-
-      - name: Enable auto-merge
-        if: steps.create-pr.outputs.pull-request-number
+      - name: Dispatch publish workflow
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}" \
-            --repo kula-app/homebrew-tap
-
-  update-homebrew-nightly:
-    name: Update Homebrew Tap (nightly)
-    needs: [prepare, release]
-    # Only on pushes to main - publishes/updates the `ship-nightly` formula.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: .github/homebrew
-
-      - name: Extract SHA256 values from release
-        id: checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -eo pipefail
-
-          gh release download "${{ needs.prepare.outputs.tag_name }}" \
-            --repo "${{ github.repository }}" \
-            --pattern "checksums.txt" \
-            --dir .
-
-          extract_sha() {
-            local sha
-            sha=$(grep "$1\$" checksums.txt | awk '{print $1}')
-            if [ -z "$sha" ]; then
-              echo "Error: No checksum found for $1" >&2
-              exit 1
-            fi
-            echo "$sha"
-          }
-
-          echo "darwin_amd64=$(extract_sha ship-darwin-amd64)" >> $GITHUB_OUTPUT
-          echo "darwin_arm64=$(extract_sha ship-darwin-arm64)" >> $GITHUB_OUTPUT
-          echo "linux_amd64=$(extract_sha ship-linux-amd64)" >> $GITHUB_OUTPUT
-          echo "linux_arm64=$(extract_sha ship-linux-arm64)" >> $GITHUB_OUTPUT
-
-      - name: Generate GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v3
-        with:
-          app-id: ${{ vars.KULA_RELEASE_BOT_APP_ID }}
-          private-key: ${{ secrets.KULA_RELEASE_BOT_PRIVATE_KEY }}
-          repositories: homebrew-tap
-          owner: kula-app
-
-      - name: Checkout Homebrew tap
-        uses: actions/checkout@v6
-        with:
-          repository: kula-app/homebrew-tap
-          token: ${{ steps.app-token.outputs.token }}
-          path: homebrew-tap
-
-      - name: Generate formula
-        run: |
-          set -eo pipefail
-          mkdir -p homebrew-tap/Formula
-          sed -e 's/{{VERSION}}/${{ needs.prepare.outputs.version }}/g' \
-              -e 's/{{SHA_DARWIN_AMD64}}/${{ steps.checksums.outputs.darwin_amd64 }}/g' \
-              -e 's/{{SHA_DARWIN_ARM64}}/${{ steps.checksums.outputs.darwin_arm64 }}/g' \
-              -e 's/{{SHA_LINUX_AMD64}}/${{ steps.checksums.outputs.linux_amd64 }}/g' \
-              -e 's/{{SHA_LINUX_ARM64}}/${{ steps.checksums.outputs.linux_arm64 }}/g' \
-              .github/homebrew/ship-nightly.rb > homebrew-tap/Formula/ship-nightly.rb
-
-      - name: Create PR on Homebrew tap
-        id: create-pr
-        uses: peter-evans/create-pull-request@v8
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          path: homebrew-tap
-          branch: update-ship-nightly
-          delete-branch: true
-          commit-message: "feat: update ship-nightly to ${{ needs.prepare.outputs.version }}"
-          committer: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
-          author: "${{ steps.app-token.outputs.app-slug }}[bot] <${{ vars.KULA_RELEASE_BOT_APP_ID }}+${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com>"
-          title: "feat: update ship-nightly to ${{ needs.prepare.outputs.version }}"
-          body: "Automated nightly formula update for ship (build ${{ needs.prepare.outputs.version }}, commit ${{ needs.prepare.outputs.commit_sha }})."
-
-      - name: Enable auto-merge
-        if: steps.create-pr.outputs.pull-request-number
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}" \
-            --repo kula-app/homebrew-tap
+          gh workflow run publish.yml \
+            --repo kula-app/publisher \
+            --ref main \
+            -f source_repo="${{ github.repository }}" \
+            -f tag="${{ needs.prepare.outputs.publish_tag }}" \
+            -f channel="${{ needs.prepare.outputs.channel }}"
 
   release-required-check:
     name: Release - Required Check
@@ -343,8 +234,7 @@ jobs:
       - build-cli-binaries
       - build-cli-docker
       - release
-      - update-homebrew
-      - update-homebrew-nightly
+      - trigger-publisher
     if: always()
     runs-on: ubuntu-latest
     steps:
