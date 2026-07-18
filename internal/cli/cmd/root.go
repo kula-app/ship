@@ -25,7 +25,14 @@ func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
 		Short:        "CLI for Shipable",
 		Long:         `Ship is the command-line interface for Shipable.`,
 		Version:      fmt.Sprintf("%s (commit: %s, built: %s)", metadata.Version, metadata.Commit, metadata.Date),
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return c.Help()
+			}
+			return cmd_publish.RunFullPublish(c, args)
+		},
 	}
 
 	// Global flags

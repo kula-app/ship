@@ -22,14 +22,16 @@ type publishJobResponse struct {
 // NewPublishCmd creates and returns the publish command with all subcommands.
 func NewPublishCmd(cliName string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "publish",
+		Use:   "publish [slug]",
 		Short: "Publish an app",
 		Long:  `Trigger a full publish workflow for a Shipable app. Use subcommands for partial publishes.`,
-		Example: fmt.Sprintf(`  %s publish --app-id <uuid>
+		Example: fmt.Sprintf(`  %s publish <slug>
+  %s publish --app-id <uuid>
   %s publish --app-slug <slug> --platform ios
-  %s publish metadata --app-id <uuid>`, cliName, cliName, cliName),
+  %s publish metadata <slug>`, cliName, cliName, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPublish(c)
+			return RunFullPublish(c, args)
 		},
 	}
 
@@ -47,8 +49,9 @@ func NewPublishCmd(cliName string) *cobra.Command {
 	return cmd
 }
 
-func runPublish(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
+// RunFullPublish triggers a full publish workflow for the resolved app.
+func RunFullPublish(c *cobra.Command, args []string) error {
+	appID, err := config.ResolveAppIdentifier(c, args...)
 	if err != nil {
 		return err
 	}
@@ -72,39 +75,45 @@ func runPublish(c *cobra.Command) error {
 
 func newMetadataCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "metadata",
-		Short:   "Publish metadata only",
-		Example: fmt.Sprintf(`  %s publish metadata --app-id <uuid>`, cliName),
+		Use:   "metadata [slug]",
+		Short: "Publish metadata only",
+		Example: fmt.Sprintf(`  %s publish metadata <slug>
+  %s publish metadata --app-id <uuid>`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "metadata")
+			return runPartialPublish(c, "metadata", args)
 		},
 	}
 }
 
 func newScreenshotsCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "screenshots",
-		Short:   "Publish screenshots only",
-		Example: fmt.Sprintf(`  %s publish screenshots --app-id <uuid>`, cliName),
+		Use:   "screenshots [slug]",
+		Short: "Publish screenshots only",
+		Example: fmt.Sprintf(`  %s publish screenshots <slug>
+  %s publish screenshots --app-id <uuid>`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "screenshots")
+			return runPartialPublish(c, "screenshots", args)
 		},
 	}
 }
 
 func newAppCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "app",
-		Short:   "Publish app binary only",
-		Example: fmt.Sprintf(`  %s publish app --app-id <uuid>`, cliName),
+		Use:   "app [slug]",
+		Short: "Publish app binary only",
+		Example: fmt.Sprintf(`  %s publish app <slug>
+  %s publish app --app-id <uuid>`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "app")
+			return runPartialPublish(c, "app", args)
 		},
 	}
 }
 
-func runPartialPublish(c *cobra.Command, variant string) error {
-	appID, err := config.ResolveAppIdentifier(c)
+func runPartialPublish(c *cobra.Command, variant string, args []string) error {
+	appID, err := config.ResolveAppIdentifier(c, args...)
 	if err != nil {
 		return err
 	}

@@ -33,7 +33,7 @@ ship auth login
 ship apps list
 
 # Publish an app
-ship publish --app-id <uuid>
+ship <slug>
 ```
 
 ## Commands
@@ -53,16 +53,18 @@ ship publish --app-id <uuid>
 
 ### Publishing
 
-| Command                                  | Description              |
-| ---------------------------------------- | ------------------------ |
-| `ship publish --app-id <id>`             | Full publish             |
-| `ship publish metadata --app-id <id>`    | Publish metadata only    |
-| `ship publish screenshots --app-id <id>` | Publish screenshots only |
-| `ship publish app --app-id <id>`         | Publish app binary only  |
-| `ship publish status --app-id <id>`      | Show publish job status  |
-| `ship publish validate --app-id <id>`    | Pre-publish validation   |
+| Command                           | Description              |
+| --------------------------------- | ------------------------ |
+| `ship <slug>`                     | Full publish             |
+| `ship publish <slug>`             | Full publish             |
+| `ship publish metadata <slug>`    | Publish metadata only    |
+| `ship publish screenshots <slug>` | Publish screenshots only |
+| `ship publish app <slug>`         | Publish app binary only  |
+| `ship publish status <slug>`      | Show publish job status  |
+| `ship publish validate <slug>`    | Pre-publish validation   |
+| `ship publish --app-id <id>`      | Full publish by ID       |
 
-All publish commands accept `--platform ios,android` to target specific platforms.
+All publish commands accept `--app-id <id>` or `--app-slug <slug>` for explicit targeting, and `--platform ios,android` to target specific platforms.
 
 Use `--log-format json` on any command for machine-readable JSON output.
 

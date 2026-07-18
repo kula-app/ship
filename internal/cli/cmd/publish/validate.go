@@ -10,18 +10,20 @@ import (
 
 func newValidateCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "validate",
-		Short:   "Pre-publish validation",
-		Long:    `Generates the Xcode project to verify the app configuration is valid before publishing.`,
-		Example: fmt.Sprintf(`  %s publish validate --app-id <uuid>`, cliName),
+		Use:   "validate [slug]",
+		Short: "Pre-publish validation",
+		Long:  `Generates the Xcode project to verify the app configuration is valid before publishing.`,
+		Example: fmt.Sprintf(`  %s publish validate <slug>
+  %s publish validate --app-id <uuid>`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runValidate(c)
+			return runValidate(c, args)
 		},
 	}
 }
 
-func runValidate(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
+func runValidate(c *cobra.Command, args []string) error {
+	appID, err := config.ResolveAppIdentifier(c, args...)
 	if err != nil {
 		return err
 	}
