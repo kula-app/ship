@@ -8,39 +8,59 @@ import (
 )
 
 func TestRootPositionalSlugTriggersFullPublish(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "my-app")
+	requests := executeCommandWithTestAPI(t, "my-app")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/publish"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish"},
+	})
+}
+
+func TestRootPositionalSlugKeepsPlatformSelection(t *testing.T) {
+	requests := executeCommandWithTestAPI(t, "my-app", "--platform", "ios")
+
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish", platforms: []string{"ios"}},
+	})
 }
 
 func TestPublishPositionalSlugTriggersFullPublish(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "publish", "my-app")
+	requests := executeCommandWithTestAPI(t, "publish", "my-app")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/publish"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish"},
+	})
 }
 
 func TestPublishPositionalSlugKeepsPlatformSelection(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "publish", "my-app", "--platform", "ios")
+	requests := executeCommandWithTestAPI(t, "publish", "my-app", "--platform", "ios")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/publish"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish", platforms: []string{"ios"}},
+	})
 }
 
 func TestPublishPartialPositionalSlug(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "publish", "metadata", "my-app")
+	requests := executeCommandWithTestAPI(t, "publish", "metadata", "my-app")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/publish/metadata"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish/metadata"},
+	})
 }
 
 func TestPublishStatusPositionalSlug(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "publish", "status", "my-app")
+	requests := executeCommandWithTestAPI(t, "publish", "status", "my-app")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/publish/status"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/publish/status"},
+	})
 }
 
 func TestPublishValidatePositionalSlug(t *testing.T) {
-	paths := executeCommandWithTestAPI(t, "publish", "validate", "my-app")
+	requests := executeCommandWithTestAPI(t, "publish", "validate", "my-app")
 
-	assertPaths(t, paths, []string{"/api/app/my-app/pre-publish/generate"})
+	assertRequests(t, requests, []apiRequest{
+		{path: "/api/app/my-app/pre-publish/generate"},
+	})
 }
 
 func TestPublishPositionalSlugRejectsExplicitIdentifier(t *testing.T) {
@@ -52,17 +72,32 @@ func TestPublishPositionalSlugRejectsExplicitIdentifier(t *testing.T) {
 	}
 }
 
-func executeCommandWithTestAPI(t *testing.T, args ...string) []string {
+type apiRequest struct {
+	path      string
+	platforms []string
+}
+
+func executeCommandWithTestAPI(t *testing.T, args ...string) []apiRequest {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "test-key")
 
-	var paths []string
+	var requests []apiRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-API-Key"); got != "test-key" {
 			t.Errorf("X-API-Key = %q, want test-key", got)
 		}
-		paths = append(paths, r.URL.Path)
+		request := apiRequest{path: r.URL.Path}
+		if r.Method == http.MethodPost {
+			var payload struct {
+				Platforms []string `json:"platforms"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Errorf("decode request body: %v", err)
+			}
+			request.platforms = payload.Platforms
+		}
+		requests = append(requests, request)
 		w.Header().Set("Content-Type", "application/json")
 		switch r.Method {
 		case http.MethodGet:
@@ -87,17 +122,25 @@ func executeCommandWithTestAPI(t *testing.T, args ...string) []string {
 		t.Fatalf("Execute(%v): %v", args, err)
 	}
 
-	return paths
+	return requests
 }
 
-func assertPaths(t *testing.T, got, want []string) {
+func assertRequests(t *testing.T, got, want []apiRequest) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Fatalf("paths = %v, want %v", got, want)
+		t.Fatalf("requests = %v, want %v", got, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("paths = %v, want %v", got, want)
+		if got[i].path != want[i].path {
+			t.Fatalf("requests = %v, want %v", got, want)
+		}
+		if len(got[i].platforms) != len(want[i].platforms) {
+			t.Fatalf("requests = %v, want %v", got, want)
+		}
+		for j := range want[i].platforms {
+			if got[i].platforms[j] != want[i].platforms[j] {
+				t.Fatalf("requests = %v, want %v", got, want)
+			}
 		}
 	}
 }
