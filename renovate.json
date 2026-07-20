@@ -44,6 +44,16 @@
       "minimumReleaseAge": "0 days",
       "prPriority": 10,
       "automerge": true
+    },
+    {
+      "description": "Group getsentry/sentry-go module and submodules into a single PR",
+      "groupName": "sentry-go",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": [
+        "github.com/getsentry/sentry-go",
+        "github.com/getsentry/sentry-go/**"
+      ],
+      "automerge": true
     }
   ],
   "postUpdateOptions": [
