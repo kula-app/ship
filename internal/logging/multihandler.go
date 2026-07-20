@@ -84,7 +84,7 @@ func NewTerminalHandler() slog.Handler {
 	if isatty.IsTerminal(os.Stderr.Fd()) {
 		// Terminal output - use colors for better readability during development
 		// Write to stderr to separate logs from standard structured output
-		return tint.NewHandler(os.Stderr, &tint.Options{
+		return tint.NewTextHandler(os.Stderr, &tint.Options{
 			AddSource:  true,
 			Level:      slog.LevelDebug,
 			TimeFormat: time.DateTime,
