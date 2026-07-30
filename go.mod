@@ -13,7 +13,7 @@ require (
 	github.com/getsentry/sentry-go v0.46.2
 	github.com/getsentry/sentry-go/slog v0.46.2
 	github.com/lmittmann/tint v1.2.0
-	github.com/mattn/go-isatty v0.0.22
+	github.com/mattn/go-isatty v0.0.24
 	github.com/olekukonko/tablewriter v1.1.4
 	github.com/spf13/cobra v1.10.2
 	modernc.org/sqlite v1.53.0
