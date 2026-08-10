@@ -36,7 +36,6 @@ func run(ctx context.Context, _ []string, getenv func(key string) string, _ *os.
 			AttachStacktrace:     true,
 			SendDefaultPII:       true,
 			SampleRate:           1.0,
-			EnableLogs:           true,
 			EnableTracing:        true,
 			TracesSampleRate:     1.0,
 			PropagateTraceparent: true,
@@ -60,8 +59,7 @@ func run(ctx context.Context, _ []string, getenv func(key string) string, _ *os.
 		}
 
 		sentryHandler := sentryslog.Option{
-			EventLevel: []slog.Level{},
-			LogLevel:   []slog.Level{slog.LevelError, slog.LevelWarn, slog.LevelInfo},
+			LogLevel: []slog.Level{slog.LevelError, slog.LevelWarn, slog.LevelInfo},
 		}.NewSentryHandler(ctx)
 
 		terminalHandler := logging.NewTerminalHandler()
