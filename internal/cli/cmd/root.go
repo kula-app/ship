@@ -8,6 +8,9 @@
 //   - auth: Log in and out, managing locally stored credentials
 //   - publish: Trigger publish workflows and inspect their status
 //
+// Each command group lives in its own package under cmd/, with cmd.go holding
+// the group constructor and one file per subcommand.
+//
 // Authentication:
 // Credentials can be provided via:
 //  1. --api-key flag (highest priority)
@@ -19,6 +22,11 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	cmd_api "github.com/kula-app/ship/internal/cli/cmd/api"
+	cmd_apps "github.com/kula-app/ship/internal/cli/cmd/apps"
+	cmd_auth "github.com/kula-app/ship/internal/cli/cmd/auth"
+	cmd_publish "github.com/kula-app/ship/internal/cli/cmd/publish"
 )
 
 // BuildMetadata holds build-time version information.
@@ -50,10 +58,10 @@ func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
 	rootCmd.PersistentFlags().String("sentry-baggage", "", "Sentry baggage header for distributed tracing (env: SENTRY_BAGGAGE)")
 
 	// Add subcommands
-	rootCmd.AddCommand(newAPICmd(cliName, deps))
-	rootCmd.AddCommand(newAppsCmd(cliName, deps))
-	rootCmd.AddCommand(newAuthCmd(cliName, deps))
-	rootCmd.AddCommand(newPublishCmd(cliName, deps))
+	rootCmd.AddCommand(cmd_api.NewAPICmd(cliName, deps))
+	rootCmd.AddCommand(cmd_apps.NewAppsCmd(cliName, deps))
+	rootCmd.AddCommand(cmd_auth.NewAuthCmd(cliName, deps))
+	rootCmd.AddCommand(cmd_publish.NewPublishCmd(cliName, deps))
 
 	return rootCmd
 }

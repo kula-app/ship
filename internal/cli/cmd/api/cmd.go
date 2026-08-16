@@ -1,4 +1,4 @@
-package cmd
+package cmd_api
 
 import (
 	"fmt"
@@ -14,12 +14,20 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/kula-app/ship/internal/cli/api"
+	"github.com/kula-app/ship/internal/cli/bootstrap"
 	"github.com/kula-app/ship/internal/cli/config"
 	"github.com/kula-app/ship/internal/cli/helpers"
+	"github.com/kula-app/ship/internal/cli/service"
 )
 
-// newAPICmd creates and returns the api command.
-func newAPICmd(cliName string, deps ShipCommandDeps) *cobra.Command {
+// APICommandDeps declares the dependencies required by the api command.
+type APICommandDeps interface {
+	bootstrap.LoggerFactory
+	service.ShipServiceFactory
+}
+
+// NewAPICmd creates and returns the api command.
+func NewAPICmd(cliName string, deps APICommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "api <endpoint>",
 		Short: "Make an authenticated API request",
@@ -52,9 +60,6 @@ For GET requests the field flags become query parameters instead of a body.`,
   # Query parameters for GET requests
   %[1]s api apps/ -F limit=10`, cliName),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAPI(cmd, deps, cliName, args[0])
-		},
 	}
 
 	cmd.Flags().StringP("method", "X", http.MethodGet, "The HTTP method for the request")
@@ -67,10 +72,14 @@ For GET requests the field flags become query parameters instead of a body.`,
 	cmd.Flags().Bool("verbose", false, "Include full HTTP request and response in the output")
 	cmd.Flags().BoolP("dry-run", "n", false, "Show the resolved request without sending it")
 
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runAPI(cmd, deps, cliName, args[0])
+	}
+
 	return cmd
 }
 
-func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint string) error {
+func runAPI(cmd *cobra.Command, deps APICommandDeps, cliName, rawEndpoint string) error {
 	// Start root Sentry transaction for CLI command
 	transaction := helpers.StartCommandTransaction(cmd, fmt.Sprintf("%s api", cliName))
 	transaction.SetData("command", "api")
@@ -82,7 +91,7 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 
 	endpoint, err := normalizeEndpoint(rawEndpoint)
 	if err != nil {
-		return failInvalidArgument(transaction, err)
+		return helpers.FailInvalidArgument(transaction, err)
 	}
 	if endpoint.StrippedLineBreaks {
 		logger.WarnContext(ctx, "stripped line breaks from endpoint (copy-paste artifact)")
@@ -94,33 +103,28 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 	}
 	transaction.SetData("endpoint", endpoint.Path)
 
-	methodFlag, _ := cmd.Flags().GetString("method")
-	method, err := parseMethod(methodFlag)
+	flags, err := readAPIFlags(cmd)
 	if err != nil {
-		return failInvalidArgument(transaction, err)
+		return helpers.FailInvalidArgument(transaction, err)
+	}
+
+	method, err := parseMethod(flags.Method)
+	if err != nil {
+		return helpers.FailInvalidArgument(transaction, err)
 	}
 	transaction.SetData("method", method)
 
-	dataFlag, _ := cmd.Flags().GetString("data")
-	inputFlag, _ := cmd.Flags().GetString("input")
-	fieldFlags, _ := cmd.Flags().GetStringArray("field")
-	rawFieldFlags, _ := cmd.Flags().GetStringArray("raw-field")
-	headerFlags, _ := cmd.Flags().GetStringArray("header")
-	silent, _ := cmd.Flags().GetBool("silent")
-	verbose, _ := cmd.Flags().GetBool("verbose")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-
 	payload, err := resolveBody(bodyFlags{
 		Method:    method,
-		Data:      dataFlag,
+		Data:      flags.Data,
 		HasData:   cmd.Flags().Changed("data"),
-		Input:     inputFlag,
+		Input:     flags.Input,
 		HasInput:  cmd.Flags().Changed("input"),
-		Fields:    fieldFlags,
-		RawFields: rawFieldFlags,
+		Fields:    flags.Fields,
+		RawFields: flags.RawFields,
 	}, cmd.InOrStdin())
 	if err != nil {
-		return failInvalidArgument(transaction, err)
+		return helpers.FailInvalidArgument(transaction, err)
 	}
 	for _, warning := range payload.Warnings {
 		logger.WarnContext(ctx, warning)
@@ -129,9 +133,9 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 		logger.InfoContext(ctx, notice)
 	}
 
-	headers, err := parseHeaders(headerFlags)
+	headers, err := parseHeaders(flags.Headers)
 	if err != nil {
-		return failInvalidArgument(transaction, err)
+		return helpers.FailInvalidArgument(transaction, err)
 	}
 	effectiveHeaders := resolveEffectiveHeaders(headers, payload)
 
@@ -139,7 +143,7 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 
 	// A dry run reports the resolved request without authenticating, so it stays
 	// usable before login.
-	if dryRun {
+	if flags.DryRun {
 		transaction.SetData("dry_run", true)
 		if err := printDryRun(cmd, dryRunRequest{
 			Method:  method,
@@ -147,7 +151,7 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 			Headers: effectiveHeaders,
 			Body:    payload.Body,
 		}); err != nil {
-			return failInternal(transaction, err)
+			return helpers.FailInternal(transaction, err)
 		}
 
 		transaction.Status = sentry.SpanStatusOK
@@ -156,27 +160,27 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 
 	// Get API credentials
 	logger.InfoContext(ctx, "retrieving API credentials")
-	svc, credentials, err := resolveShipService(cmd, deps)
+	svc, credentials, err := helpers.ResolveShipService(cmd, deps)
 	if err != nil {
-		return failUnauthenticated(transaction, err)
+		return helpers.FailUnauthenticated(transaction, err)
 	}
 	transaction.SetData("api_url", credentials.APIURL)
 
 	body, err := encodeBody(payload)
 	if err != nil {
-		return failInvalidArgument(transaction, err)
+		return helpers.FailInvalidArgument(transaction, err)
 	}
 
 	// --silent suppresses the response body, so the transcript would be the only
 	// output left; keeping them in step matches the reference implementation.
-	transcript := verbose && !silent
+	transcript := flags.Verbose && !flags.Silent
 	if transcript {
 		logRequest(cmd, method, requestPath, effectiveHeaders)
 	}
 
 	response, err := svc.SendRawRequest(ctx, method, requestPath, body, effectiveHeaders)
 	if err != nil {
-		return failInternal(transaction, err)
+		return helpers.FailInternal(transaction, err)
 	}
 	if transcript {
 		logResponse(cmd, response)
@@ -185,7 +189,7 @@ func runAPI(cmd *cobra.Command, deps ShipCommandDeps, cliName, rawEndpoint strin
 
 	// The endpoint's own status drives the exit code, so a 4xx is reported as a
 	// failed precondition rather than a CLI bug.
-	if err := renderResponse(cmd, response, silent); err != nil {
+	if err := renderResponse(cmd, response, flags.Silent); err != nil {
 		transaction.Status = sentry.SpanStatusFailedPrecondition
 		return err
 	}
@@ -300,8 +304,8 @@ func renderResponse(c *cobra.Command, response *api.RawResponse, silent bool) er
 // renderBody formats a textual response body: pretty-printed JSON for humans,
 // the untouched server response in JSON log format.
 func renderBody(c *cobra.Command, body []byte) string {
-	logFormat, _ := c.Flags().GetString("log-format")
-	if logFormat == "json" {
+	outputJSON, err := helpers.ResolveLogFormat(c)
+	if err == nil && outputJSON {
 		return string(body)
 	}
 
@@ -311,10 +315,63 @@ func renderBody(c *cobra.Command, body []byte) string {
 // encodeForOutput encodes a value for stdout, compact in JSON log format and
 // indented otherwise.
 func encodeForOutput(c *cobra.Command, value any) ([]byte, error) {
-	logFormat, _ := c.Flags().GetString("log-format")
-	if logFormat == "json" {
+	outputJSON, err := helpers.ResolveLogFormat(c)
+	if err != nil {
+		return nil, err
+	}
+	if outputJSON {
 		return marshalJSON(value)
 	}
 
 	return marshalJSONIndent(value)
+}
+
+// apiFlags holds the raw flag values of the api command.
+type apiFlags struct {
+	Method    string
+	Data      string
+	Input     string
+	Fields    []string
+	RawFields []string
+	Headers   []string
+	Silent    bool
+	Verbose   bool
+	DryRun    bool
+}
+
+// readAPIFlags reads every api command flag, reporting the first failure rather
+// than silently falling back to a zero value.
+func readAPIFlags(cmd *cobra.Command) (apiFlags, error) {
+	var flags apiFlags
+	var err error
+
+	if flags.Method, err = cmd.Flags().GetString("method"); err != nil {
+		return flags, fmt.Errorf("failed to get method flag: %w", err)
+	}
+	if flags.Data, err = cmd.Flags().GetString("data"); err != nil {
+		return flags, fmt.Errorf("failed to get data flag: %w", err)
+	}
+	if flags.Input, err = cmd.Flags().GetString("input"); err != nil {
+		return flags, fmt.Errorf("failed to get input flag: %w", err)
+	}
+	if flags.Fields, err = cmd.Flags().GetStringArray("field"); err != nil {
+		return flags, fmt.Errorf("failed to get field flag: %w", err)
+	}
+	if flags.RawFields, err = cmd.Flags().GetStringArray("raw-field"); err != nil {
+		return flags, fmt.Errorf("failed to get raw-field flag: %w", err)
+	}
+	if flags.Headers, err = cmd.Flags().GetStringArray("header"); err != nil {
+		return flags, fmt.Errorf("failed to get header flag: %w", err)
+	}
+	if flags.Silent, err = cmd.Flags().GetBool("silent"); err != nil {
+		return flags, fmt.Errorf("failed to get silent flag: %w", err)
+	}
+	if flags.Verbose, err = cmd.Flags().GetBool("verbose"); err != nil {
+		return flags, fmt.Errorf("failed to get verbose flag: %w", err)
+	}
+	if flags.DryRun, err = cmd.Flags().GetBool("dry-run"); err != nil {
+		return flags, fmt.Errorf("failed to get dry-run flag: %w", err)
+	}
+
+	return flags, nil
 }
