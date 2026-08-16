@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	cmd_api "github.com/kula-app/ship/internal/cli/cmd/api"
 	cmd_apps "github.com/kula-app/ship/internal/cli/cmd/apps"
 	cmd_auth "github.com/kula-app/ship/internal/cli/cmd/auth"
 	cmd_publish "github.com/kula-app/ship/internal/cli/cmd/publish"
@@ -34,6 +35,7 @@ func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
 	rootCmd.PersistentFlags().String("log-format", "text", "Log format: text or json")
 
 	// Add subcommands
+	rootCmd.AddCommand(cmd_api.NewAPICmd(cliName))
 	rootCmd.AddCommand(cmd_apps.NewAppsCmd(cliName))
 	rootCmd.AddCommand(cmd_auth.NewAuthCmd(cliName))
 	rootCmd.AddCommand(cmd_publish.NewPublishCmd(cliName))
