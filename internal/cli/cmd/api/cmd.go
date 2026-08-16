@@ -145,7 +145,7 @@ func runAPI(c *cobra.Command, rawEndpoint string) error {
 	// output left; keeping them in step matches the reference implementation.
 	transcript := verbose && !silent
 	if transcript {
-		logRequest(c, method, requestPath, headers)
+		logRequest(c, method, requestPath, effectiveHeaders)
 	}
 
 	response, err := client.RawRequest(ctx, method, requestPath, body, effectiveHeaders)
@@ -195,6 +195,9 @@ func printDryRun(c *cobra.Command, request dryRunRequest) error {
 }
 
 // logRequest writes the outgoing request to stderr in curl's verbose "> " style.
+// It receives the effective headers, so the transcript shows what is actually
+// sent — including an auto-added Content-Type. Authentication headers are added
+// further down in the client and stay out of the transcript.
 func logRequest(c *cobra.Command, method, path string, headers map[string]string) {
 	out := c.ErrOrStderr()
 

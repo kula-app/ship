@@ -210,6 +210,23 @@ func TestAPICommandVerboseWritesTranscriptToStderr(t *testing.T) {
 	}
 }
 
+func TestAPICommandVerboseTranscriptIncludesAutoAddedHeaders(t *testing.T) {
+	server, captured := newTestServer(t, http.StatusOK, "application/json", []byte(`{}`))
+
+	_, stderr, err := runCommand(t, server, "", "app/1/publish", "-X", "POST", "-F", "platforms[]=ios", "--verbose")
+	if err != nil {
+		t.Fatalf("execute command: %v", err)
+	}
+
+	// The transcript must report what is actually sent, not just what was typed.
+	if captured.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("Content-Type = %q, want it to be sent", captured.Header.Get("Content-Type"))
+	}
+	if !strings.Contains(stderr, "> Content-Type: application/json") {
+		t.Fatalf("stderr = %q, want the auto-added Content-Type in the transcript", stderr)
+	}
+}
+
 func TestAPICommandSilentSuppressesVerboseTranscript(t *testing.T) {
 	server, _ := newTestServer(t, http.StatusOK, "application/json", []byte(`{}`))
 
