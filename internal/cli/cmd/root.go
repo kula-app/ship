@@ -23,10 +23,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kula-app/ship/internal/cli/bootstrap"
 	cmd_api "github.com/kula-app/ship/internal/cli/cmd/api"
 	cmd_apps "github.com/kula-app/ship/internal/cli/cmd/apps"
 	cmd_auth "github.com/kula-app/ship/internal/cli/cmd/auth"
 	cmd_publish "github.com/kula-app/ship/internal/cli/cmd/publish"
+	"github.com/kula-app/ship/internal/cli/service"
 )
 
 // BuildMetadata holds build-time version information.
@@ -36,12 +38,23 @@ type BuildMetadata struct {
 	Date    string
 }
 
-// NewRootCommand creates the fully-wired root command for the ship CLI.
-// All subcommands are constructed on demand via factory functions, with
-// build metadata and CLI name passed as parameters.
-func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
-	deps := NewDependencyContainer()
+// RootCommandDeps declares the dependencies shared by root command groups.
+type RootCommandDeps interface {
+	bootstrap.LoggerFactory
+	service.ShipServiceFactory
+}
 
+// NewRootCommand creates the fully-wired root command for the ship CLI using
+// the default dependency container. It remains for compatibility with existing
+// callers.
+func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
+	return NewRootCommandWithDependencies(cliName, metadata, NewDependencyContainer())
+}
+
+// NewRootCommandWithDependencies creates the fully-wired root command using
+// the supplied dependencies. All subcommands are constructed on demand via
+// factory functions, with build metadata and CLI name passed as parameters.
+func NewRootCommandWithDependencies(cliName string, metadata BuildMetadata, deps RootCommandDeps) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:          cliName,
 		Short:        "CLI for Shipable",
