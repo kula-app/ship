@@ -2,6 +2,7 @@ package cmd_auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"time"
@@ -112,14 +113,11 @@ func runAuthLogin(cmd *cobra.Command, deps AuthLoginCommandDeps, cliName string)
 	// Wait for callback
 	select {
 	case result := <-resultChan:
-		if result.State != "" && result.State != state {
-			return helpers.FailInvalidArgument(transaction, fmt.Errorf("authentication failed: invalid OAuth state"))
-		}
-		if result.Error != "" {
-			return helpers.FailUnauthenticated(transaction, fmt.Errorf("authentication failed: %s", result.Error))
-		}
-		if result.State == "" {
-			return helpers.FailInvalidArgument(transaction, fmt.Errorf("authentication failed: missing OAuth state"))
+		if err := validateCallbackResult(result, state); err != nil {
+			if errors.Is(err, errProviderRejected) {
+				return helpers.FailUnauthenticated(transaction, err)
+			}
+			return helpers.FailInvalidArgument(transaction, err)
 		}
 
 		// Exchange code for tokens
@@ -144,6 +142,31 @@ func runAuthLogin(cmd *cobra.Command, deps AuthLoginCommandDeps, cliName string)
 		transaction.Status = sentry.SpanStatusDeadlineExceeded
 		return fmt.Errorf("authentication timed out after %s", loginTimeout)
 	}
+}
+
+// errProviderRejected marks a callback the authorization provider itself
+// rejected, as opposed to one that failed the local state check.
+var errProviderRejected = errors.New("authentication rejected by the provider")
+
+// validateCallbackResult checks an OAuth callback before its code is exchanged.
+//
+// A provider error is reported first because it carries the actionable message;
+// checking the state first would mask "invalid_client" and friends behind a
+// generic state error whenever the provider omits or alters the state. This does
+// not weaken CSRF protection: every branch below aborts the login, so a callback
+// with a mismatched state never reaches the token exchange either way.
+func validateCallbackResult(result auth.CallbackResult, state string) error {
+	if result.Error != "" {
+		return fmt.Errorf("%w: %s", errProviderRejected, result.Error)
+	}
+	if result.State == "" {
+		return fmt.Errorf("authentication failed: missing OAuth state")
+	}
+	if result.State != state {
+		return fmt.Errorf("authentication failed: invalid OAuth state")
+	}
+
+	return nil
 }
 
 // buildAuthURL constructs the full authorization URL with PKCE parameters.
