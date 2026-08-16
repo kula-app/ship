@@ -1,4 +1,4 @@
-package cmd_api_test
+package cmd_test
 
 import (
 	"bytes"

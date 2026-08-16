@@ -11,6 +11,7 @@ import (
 	sentryslog "github.com/getsentry/sentry-go/slog"
 
 	"github.com/kula-app/ship/internal/cli/cmd"
+	clierrors "github.com/kula-app/ship/internal/cli/errors"
 	"github.com/kula-app/ship/internal/logging"
 )
 
@@ -40,10 +41,17 @@ func run(ctx context.Context, _ []string, getenv func(key string) string, _ *os.
 			TracesSampleRate:     1.0,
 			PropagateTraceparent: true,
 			BeforeSend: func(event *sentry.Event, hint *sentry.EventHint) *sentry.Event {
+				// Always send transaction events (performance monitoring)
 				if event.Type == "transaction" {
 					return event
 				}
 
+				// Filter user errors from error reporting
+				if clierrors.IsUserError(event) {
+					return nil // Discard the event
+				}
+
+				// Add build date to event tags
 				if metadata.Date != "" {
 					if event.Tags == nil {
 						event.Tags = make(map[string]string)

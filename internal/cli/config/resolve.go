@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kula-app/ship/internal/cli/api"
 	"github.com/kula-app/ship/internal/cli/auth"
 	"github.com/kula-app/ship/internal/cli/db"
 )
@@ -96,9 +95,32 @@ func ResolveAppIdentifier(cmd *cobra.Command) (string, error) {
 	return "", fmt.Errorf("app identifier required: pass --app-id or --app-slug, or set SHIP_APP_ID or SHIP_APP_SLUG")
 }
 
-// AuthenticatedClient returns an API client using stored credentials.
-// Returns an error if the user is not authenticated.
-func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
+// Credentials are the resolved API endpoint and authentication material for a
+// single command invocation. Exactly one of AccessToken and APIKey is set.
+type Credentials struct {
+	APIURL      string
+	AccessToken string
+	APIKey      string
+}
+
+// IsAPIKey reports whether the credentials authenticate with an API key rather
+// than a session bearer token. This is the single rule deciding which client
+// flavor a caller builds.
+func (c *Credentials) IsAPIKey() bool {
+	return c.APIKey != ""
+}
+
+// ResolveCredentials determines the API URL and authentication material to use,
+// refreshing an expired session token when a refresh token is available.
+//
+// Authentication is resolved in priority order:
+//
+//  1. --api-key flag - always wins, even over a valid session token
+//  2. Stored session token - refreshed in place when expired
+//  3. SHIP_API_KEY env var - fallback when no usable session exists
+//
+// Returns an error if none of the above yields usable credentials.
+func ResolveCredentials(cmd *cobra.Command) (*Credentials, error) {
 	apiURL := ResolveAPIURL(cmd)
 	rootName := "ship"
 	if cmd != nil {
@@ -108,29 +130,29 @@ func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
 	// An explicit --api-key flag always wins, even over a valid session token.
 	// The SHIP_API_KEY env var only applies as a fallback when no session exists.
 	if apiKey := apiKeyFlag(cmd); apiKey != "" {
-		return api.NewAPIKeyClient(apiURL, apiKey), nil
+		return &Credentials{APIURL: apiURL, APIKey: apiKey}, nil
 	}
 
 	credentials, err := db.GetAuthCredentials()
 	if err != nil {
 		if apiKey := ResolveAPIKey(cmd); apiKey != "" {
-			return api.NewAPIKeyClient(apiURL, apiKey), nil
+			return &Credentials{APIURL: apiURL, APIKey: apiKey}, nil
 		}
 		return nil, fmt.Errorf("failed to read credentials: %w", err)
 	}
 	if credentials == nil || credentials.AccessToken == "" {
 		if apiKey := ResolveAPIKey(cmd); apiKey != "" {
-			return api.NewAPIKeyClient(apiURL, apiKey), nil
+			return &Credentials{APIURL: apiURL, APIKey: apiKey}, nil
 		}
 		return nil, fmt.Errorf("not authenticated — run '%s auth login' first or set SHIP_API_KEY", rootName)
 	}
 	if !credentials.IsExpired(time.Now()) {
-		return api.NewClient(apiURL, credentials.AccessToken), nil
+		return &Credentials{APIURL: apiURL, AccessToken: credentials.AccessToken}, nil
 	}
 
 	if credentials.RefreshToken == "" {
 		if apiKey := ResolveAPIKey(cmd); apiKey != "" {
-			return api.NewAPIKeyClient(apiURL, apiKey), nil
+			return &Credentials{APIURL: apiURL, APIKey: apiKey}, nil
 		}
 		return nil, fmt.Errorf("credentials expired — run '%s auth login' first or set SHIP_API_KEY", rootName)
 	}
@@ -153,5 +175,5 @@ func AuthenticatedClient(cmd *cobra.Command) (*api.Client, error) {
 		return nil, fmt.Errorf("failed to store refreshed credentials: %w", err)
 	}
 
-	return api.NewClient(apiURL, tokenResp.AccessToken), nil
+	return &Credentials{APIURL: apiURL, AccessToken: tokenResp.AccessToken}, nil
 }

@@ -1,4 +1,4 @@
-package cmd_auth
+package cmd
 
 import (
 	"net/url"

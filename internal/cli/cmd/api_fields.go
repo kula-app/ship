@@ -1,4 +1,4 @@
-package cmd_api
+package cmd
 
 import (
 	"encoding/json"
