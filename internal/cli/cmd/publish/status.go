@@ -22,17 +22,19 @@ type publishStatusResponse struct {
 
 func newStatusCmd(cliName string) *cobra.Command {
 	return &cobra.Command{
-		Use:     "status",
-		Short:   "Show publish job status",
-		Example: fmt.Sprintf(`  %s publish status --app-id <uuid>`, cliName),
+		Use:   "status [slug]",
+		Short: "Show publish job status",
+		Example: fmt.Sprintf(`  %s publish status <slug>
+  %s publish status --app-id <uuid>`, cliName, cliName),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			return runStatus(c)
+			return runStatus(c, args)
 		},
 	}
 }
 
-func runStatus(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
+func runStatus(c *cobra.Command, args []string) error {
+	appID, err := config.ResolveAppIdentifier(c, args...)
 	if err != nil {
 		return err
 	}

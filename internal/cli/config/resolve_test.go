@@ -369,6 +369,40 @@ func TestResolveAppIdentifierFlagOverridesEnv(t *testing.T) {
 	}
 }
 
+func TestResolveAppIdentifierPositionalSlug(t *testing.T) {
+	got, err := ResolveAppIdentifier(testAppCommand(), "my-app")
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "my-app" {
+		t.Fatalf("ResolveAppIdentifier = %q, want positional slug", got)
+	}
+}
+
+func TestResolveAppIdentifierPositionalSlugOverridesEnv(t *testing.T) {
+	t.Setenv("SHIP_APP_ID", "env-id")
+	t.Setenv("SHIP_APP_SLUG", "env-slug")
+
+	got, err := ResolveAppIdentifier(testAppCommand(), "my-app")
+	if err != nil {
+		t.Fatalf("ResolveAppIdentifier: %v", err)
+	}
+	if got != "my-app" {
+		t.Fatalf("ResolveAppIdentifier = %q, want positional slug over env", got)
+	}
+}
+
+func TestResolveAppIdentifierPositionalSlugConflictsWithFlag(t *testing.T) {
+	cmd := testAppCommand()
+	if err := cmd.Flags().Set("app-slug", "flag-slug"); err != nil {
+		t.Fatalf("set app-slug flag: %v", err)
+	}
+
+	if _, err := ResolveAppIdentifier(cmd, "positional-slug"); err == nil {
+		t.Fatal("expected error when positional slug is combined with an app flag")
+	}
+}
+
 func TestResolveAppIdentifierEnvAppID(t *testing.T) {
 	t.Setenv("SHIP_APP_ID", "env-id")
 

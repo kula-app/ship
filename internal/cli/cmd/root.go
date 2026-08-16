@@ -26,13 +26,26 @@ func NewRootCommand(cliName string, metadata BuildMetadata) *cobra.Command {
 		Short:        "CLI for Shipable",
 		Long:         `Ship is the command-line interface for Shipable.`,
 		Version:      fmt.Sprintf("%s (commit: %s, built: %s)", metadata.Version, metadata.Commit, metadata.Date),
+		Args:         cobra.MaximumNArgs(1),
 		SilenceUsage: true,
+		RunE: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return c.Help()
+			}
+			return cmd_publish.RunFullPublish(c, args)
+		},
 	}
 
 	// Global flags
 	rootCmd.PersistentFlags().String("api-url", "", "API base URL (env: SHIP_API_URL)")
 	rootCmd.PersistentFlags().String("api-key", "", "API key for authentication (env: SHIP_API_KEY)")
 	rootCmd.PersistentFlags().String("log-format", "text", "Log format: text or json")
+
+	// Publish shorthand flags
+	rootCmd.Flags().String("app-id", "", "App ID (UUID); env: SHIP_APP_ID")
+	rootCmd.Flags().String("app-slug", "", "App slug, alternative to --app-id; env: SHIP_APP_SLUG")
+	rootCmd.Flags().StringSlice("platform", nil, "Target platforms (ios, android); omit for all")
+	rootCmd.MarkFlagsMutuallyExclusive("app-id", "app-slug")
 
 	// Add subcommands
 	rootCmd.AddCommand(cmd_api.NewAPICmd(cliName))

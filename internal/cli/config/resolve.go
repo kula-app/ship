@@ -59,17 +59,20 @@ func ResolveAPIKey(cmd *cobra.Command) string {
 }
 
 // ResolveAppIdentifier determines the target app's path identifier — either a
-// UUID app ID or a slug — from flags or environment, in priority order:
+// UUID app ID or a slug — from flags, an optional positional slug, or
+// environment, in priority order:
 //
 //  1. --app-id flag
 //  2. --app-slug flag
-//  3. SHIP_APP_ID env var
-//  4. SHIP_APP_SLUG env var
+//  3. positional slug
+//  4. SHIP_APP_ID env var
+//  5. SHIP_APP_SLUG env var
 //
 // The resolved value is sent verbatim in the request path; the API accepts a
 // UUID or a slug in the same position. The --app-id and --app-slug flags are
-// mutually exclusive. An error is returned if no identifier is provided.
-func ResolveAppIdentifier(cmd *cobra.Command) (string, error) {
+// mutually exclusive, and neither can be combined with a positional slug. An
+// error is returned if no identifier is provided.
+func ResolveAppIdentifier(cmd *cobra.Command, positionalSlug ...string) (string, error) {
 	var idFlag, slugFlag string
 	if cmd != nil {
 		idFlag, _ = cmd.Flags().GetString("app-id")
@@ -79,11 +82,20 @@ func ResolveAppIdentifier(cmd *cobra.Command) (string, error) {
 	if idFlag != "" && slugFlag != "" {
 		return "", fmt.Errorf("--app-id and --app-slug are mutually exclusive")
 	}
+	if len(positionalSlug) > 1 {
+		return "", fmt.Errorf("only one positional app slug is allowed")
+	}
+	if len(positionalSlug) == 1 && positionalSlug[0] != "" && (idFlag != "" || slugFlag != "") {
+		return "", fmt.Errorf("positional app slug cannot be combined with --app-id or --app-slug")
+	}
 	if idFlag != "" {
 		return idFlag, nil
 	}
 	if slugFlag != "" {
 		return slugFlag, nil
+	}
+	if len(positionalSlug) == 1 && positionalSlug[0] != "" {
+		return positionalSlug[0], nil
 	}
 
 	if envID := os.Getenv("SHIP_APP_ID"); envID != "" {
@@ -93,7 +105,7 @@ func ResolveAppIdentifier(cmd *cobra.Command) (string, error) {
 		return envSlug, nil
 	}
 
-	return "", fmt.Errorf("app identifier required: pass --app-id or --app-slug, or set SHIP_APP_ID or SHIP_APP_SLUG")
+	return "", fmt.Errorf("app identifier required: pass <slug>, --app-id, or --app-slug, or set SHIP_APP_ID or SHIP_APP_SLUG")
 }
 
 // AuthenticatedClient returns an API client using stored credentials.
