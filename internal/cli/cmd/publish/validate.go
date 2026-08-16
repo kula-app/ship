@@ -5,40 +5,31 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/kula-app/ship/internal/cli/config"
+	"github.com/kula-app/ship/internal/cli/service"
 )
 
-func newValidateCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
+// PublishValidateCommandDeps declares the dependencies required by the publish validate command.
+type PublishValidateCommandDeps = PublishCommandsDeps
+
+// newValidateCmd creates the "publish validate" command.
+func newValidateCmd(cliName string, deps PublishValidateCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:     "validate",
 		Short:   "Pre-publish validation",
 		Long:    `Generates the Xcode project to verify the app configuration is valid before publishing.`,
-		Example: fmt.Sprintf(`  %s publish validate --app-id <uuid>`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runValidate(c)
-		},
+		Example: fmt.Sprintf(`  %[1]s publish validate --app-id <uuid>`, cliName),
 	}
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runPublishValidate(cmd, deps, cliName)
+	}
+
+	return cmd
 }
 
-func runValidate(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
-	if err != nil {
-		return err
-	}
-
-	client, err := config.AuthenticatedClient(c)
-	if err != nil {
-		return err
-	}
-
-	platforms, _ := c.Flags().GetStringSlice("platform")
-	body, err := client.Post(
-		fmt.Sprintf("/api/app/%s/pre-publish/generate", appID),
-		publishJobRequest{Platforms: platforms},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to trigger validation: %w", err)
-	}
-
-	return printJobResponse(c, body)
+func runPublishValidate(cmd *cobra.Command, deps PublishValidateCommandDeps, cliName string) error {
+	return runPublishJob(cmd, deps, fmt.Sprintf("%s publish validate", cliName), "validate",
+		func(svc *service.ShipService, appID string, platforms []string) (*service.PublishJobResult, []byte, error) {
+			return svc.TriggerValidation(cmd.Context(), appID, platforms)
+		})
 }

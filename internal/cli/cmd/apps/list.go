@@ -1,76 +1,106 @@
 package cmd_apps
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
-	"github.com/kula-app/ship/internal/cli/config"
+	"github.com/kula-app/ship/internal/cli/bootstrap"
+	"github.com/kula-app/ship/internal/cli/helpers"
+	"github.com/kula-app/ship/internal/cli/service"
 )
 
-type app struct {
-	AppID   string  `json:"app_id"`
-	Slug    *string `json:"slug"`
-	AppName *string `json:"app_name"`
+// AppsListCommandDeps declares the dependencies required by the apps list command.
+type AppsListCommandDeps interface {
+	bootstrap.LoggerFactory
+	service.ShipServiceFactory
 }
 
 // newListCmd creates the "apps list" command.
-func newListCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
-		Use:     "list",
-		Short:   "List all apps",
-		Long:    `Fetch and display all apps from the Shipable API.`,
-		Example: fmt.Sprintf(`  %s apps list`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runList(c)
-		},
+func newListCmd(cliName string, deps AppsListCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "List all apps",
+		Long:  `Fetch and display all apps from the Shipable API.`,
+		Example: fmt.Sprintf(`  # List all apps
+  %[1]s apps list
+
+  # JSON output for scripting
+  %[1]s apps list --log-format json`, cliName),
 	}
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runAppsList(cmd, deps, cliName)
+	}
+
+	return cmd
 }
 
-func runList(c *cobra.Command) error {
-	client, err := config.AuthenticatedClient(c)
+func runAppsList(cmd *cobra.Command, deps AppsListCommandDeps, cliName string) error {
+	// Start root Sentry transaction for CLI command
+	transaction := helpers.StartCommandTransaction(cmd, fmt.Sprintf("%s apps list", cliName))
+	transaction.SetData("command", "apps.list")
+	transaction.SetData("cli_name", cliName)
+	defer transaction.Finish()
+
+	ctx := cmd.Context()
+	logger := deps.GetLogger()
+
+	// Get log format from global flag
+	outputJSON, err := helpers.ResolveLogFormat(cmd)
 	if err != nil {
-		return err
+		return helpers.FailInvalidArgument(transaction, err)
 	}
+	transaction.SetData("output_json", outputJSON)
 
-	body, err := client.Get("/api/apps/")
+	// Get API credentials
+	logger.InfoContext(ctx, "retrieving API credentials")
+	svc, credentials, err := helpers.ResolveShipService(cmd, deps)
 	if err != nil {
-		return fmt.Errorf("failed to fetch apps: %w", err)
+		return helpers.FailUnauthenticated(transaction, err)
 	}
+	transaction.SetData("api_url", credentials.APIURL)
 
-	logFormat, _ := c.Flags().GetString("log-format")
-	if logFormat == "json" {
-		fmt.Fprintln(os.Stdout, string(body))
-		return nil
+	apps, body, err := svc.ListApps(ctx)
+	if err != nil {
+		return helpers.FailInternal(transaction, err)
 	}
+	transaction.SetData("app_count", len(apps))
 
-	var apps []app
-	if err := json.Unmarshal(body, &apps); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
+	// Output final result
+	if outputJSON {
+		transaction.Status = sentry.SpanStatusOK
+		return helpers.OutputJSON(cmd, body)
 	}
 
 	if len(apps) == 0 {
-		fmt.Fprintln(os.Stderr, "No apps found.")
+		helpers.PrintMessage(cmd, "No apps found.")
+		transaction.Status = sentry.SpanStatusOK
 		return nil
 	}
 
-	table := tablewriter.NewTable(os.Stdout)
+	// Text output
+	table := tablewriter.NewTable(cmd.OutOrStdout())
 	table.Header("ID", "Slug", "Name")
 
-	for _, a := range apps {
+	for _, app := range apps {
 		slug := ""
-		if a.Slug != nil {
-			slug = *a.Slug
+		if app.Slug != nil {
+			slug = *app.Slug
 		}
 		name := ""
-		if a.AppName != nil {
-			name = *a.AppName
+		if app.AppName != nil {
+			name = *app.AppName
 		}
-		table.Append(a.AppID, slug, name)
+		table.Append(app.AppID, slug, name)
 	}
 
-	return table.Render()
+	if err := table.Render(); err != nil {
+		return helpers.FailInternal(transaction, err)
+	}
+
+	transaction.Status = sentry.SpanStatusOK
+	return nil
 }

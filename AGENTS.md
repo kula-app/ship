@@ -44,8 +44,10 @@
 ### CLI Output Modes
 
 - **Text mode** (default): logs to stderr via slog, results to stdout
-- **JSON mode** (`--log-format json`): silent logger, only JSON to stdout
+- **JSON mode** (`--log-format json`): logs still go to stderr, only JSON to stdout
 - **stdout** = structured output, **stderr** = diagnostics
+- Never silence the logger by output format — stream separation is what keeps
+  stdout parseable
 
 ### JSON Parsing
 

@@ -1,75 +1,101 @@
 package cmd_publish
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/olekukonko/tablewriter"
 	"github.com/spf13/cobra"
 
 	"github.com/kula-app/ship/internal/cli/config"
+	"github.com/kula-app/ship/internal/cli/helpers"
 )
 
-type taskStatus struct {
-	Status string `json:"status"`
+// PublishStatusCommandDeps declares the dependencies required by the publish status command.
+type PublishStatusCommandDeps = PublishCommandsDeps
+
+// newStatusCmd creates the "publish status" command.
+func newStatusCmd(cliName string, deps PublishStatusCommandDeps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "status",
+		Short: "Show publish job status",
+		Long:  `Show the status of the app's current publish job and its individual tasks.`,
+		Example: fmt.Sprintf(`  # Check the publish status
+  %[1]s publish status --app-id <uuid>
+
+  # JSON output for scripting
+  %[1]s publish status --app-id <uuid> --log-format json`, cliName),
+	}
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runPublishStatus(cmd, deps, cliName)
+	}
+
+	return cmd
 }
 
-type publishStatusResponse struct {
-	Status string                `json:"status"`
-	Tasks  map[string]taskStatus `json:"tasks,omitempty"`
-}
+func runPublishStatus(cmd *cobra.Command, deps PublishStatusCommandDeps, cliName string) error {
+	// Start root Sentry transaction for CLI command
+	transaction := helpers.StartCommandTransaction(cmd, fmt.Sprintf("%s publish status", cliName))
+	transaction.SetData("command", "publish.status")
+	transaction.SetData("cli_name", cliName)
+	defer transaction.Finish()
 
-func newStatusCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
-		Use:     "status",
-		Short:   "Show publish job status",
-		Example: fmt.Sprintf(`  %s publish status --app-id <uuid>`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runStatus(c)
-		},
-	}
-}
+	ctx := cmd.Context()
+	logger := deps.GetLogger()
 
-func runStatus(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
+	// Get log format from global flag
+	outputJSON, err := helpers.ResolveLogFormat(cmd)
 	if err != nil {
-		return err
+		return helpers.FailInvalidArgument(transaction, err)
 	}
+	transaction.SetData("output_json", outputJSON)
 
-	client, err := config.AuthenticatedClient(c)
+	appID, err := config.ResolveAppIdentifier(cmd)
 	if err != nil {
-		return err
+		return helpers.FailInvalidArgument(transaction, err)
 	}
+	transaction.SetData("app_id", appID)
 
-	body, err := client.Get(fmt.Sprintf("/api/app/%s/publish/status", appID))
+	// Get API credentials
+	logger.InfoContext(ctx, "retrieving API credentials")
+	svc, credentials, err := helpers.ResolveShipService(cmd, deps)
 	if err != nil {
-		return fmt.Errorf("failed to fetch publish status: %w", err)
+		return helpers.FailUnauthenticated(transaction, err)
+	}
+	transaction.SetData("api_url", credentials.APIURL)
+
+	status, body, err := svc.GetPublishStatus(ctx, appID)
+	if err != nil {
+		return helpers.FailInternal(transaction, err)
+	}
+	transaction.SetData("publish_status", status.Status)
+
+	// Output final result
+	if outputJSON {
+		transaction.Status = sentry.SpanStatusOK
+		return helpers.OutputJSON(cmd, body)
 	}
 
-	logFormat, _ := c.Flags().GetString("log-format")
-	if logFormat == "json" {
-		fmt.Fprintln(os.Stdout, string(body))
+	// Text output
+	helpers.PrintMessage(cmd, "Status: %s", status.Status)
+
+	if len(status.Tasks) == 0 {
+		transaction.Status = sentry.SpanStatusOK
 		return nil
 	}
 
-	var resp publishStatusResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	fmt.Fprintf(os.Stderr, "Status: %s\n", resp.Status)
-
-	if len(resp.Tasks) == 0 {
-		return nil
-	}
-
-	table := tablewriter.NewTable(os.Stdout)
+	table := tablewriter.NewTable(cmd.OutOrStdout())
 	table.Header("Task", "Status")
 
-	for name, t := range resp.Tasks {
-		table.Append(name, t.Status)
+	for name, task := range status.Tasks {
+		table.Append(name, task.Status)
 	}
 
-	return table.Render()
+	if err := table.Render(); err != nil {
+		return helpers.FailInternal(transaction, err)
+	}
+
+	transaction.Status = sentry.SpanStatusOK
+	return nil
 }

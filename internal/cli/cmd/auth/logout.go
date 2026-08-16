@@ -2,38 +2,58 @@ package cmd_auth
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/spf13/cobra"
 
+	"github.com/kula-app/ship/internal/cli/bootstrap"
 	"github.com/kula-app/ship/internal/cli/db"
+	"github.com/kula-app/ship/internal/cli/helpers"
 )
 
+// AuthLogoutCommandDeps declares the dependencies required by the auth logout command.
+type AuthLogoutCommandDeps interface {
+	bootstrap.LoggerFactory
+}
+
 // newLogoutCmd creates the "auth logout" command.
-func newLogoutCmd(cliName string) *cobra.Command {
+func newLogoutCmd(cliName string, deps AuthLogoutCommandDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "logout",
 		Short:   "Log out of Shipable",
 		Long:    `Remove locally stored authentication credentials.`,
-		Example: fmt.Sprintf(`  %s auth logout`, cliName),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogout(cmd, args, cliName)
-		},
+		Example: fmt.Sprintf(`  %[1]s auth logout`, cliName),
+	}
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runAuthLogout(cmd, deps, cliName)
 	}
 
 	return cmd
 }
 
-func runLogout(_ *cobra.Command, _ []string, _ string) error {
+func runAuthLogout(cmd *cobra.Command, deps AuthLogoutCommandDeps, cliName string) error {
+	// Start root Sentry transaction for CLI command
+	transaction := helpers.StartCommandTransaction(cmd, fmt.Sprintf("%s auth logout", cliName))
+	transaction.SetData("command", "auth.logout")
+	transaction.SetData("cli_name", cliName)
+	defer transaction.Finish()
+
+	logger := deps.GetLogger()
+
 	if !db.IsAuthenticated() {
-		fmt.Fprintln(os.Stderr, "You are not currently authenticated.")
+		helpers.PrintMessage(cmd, "You are not currently authenticated.")
+		transaction.Status = sentry.SpanStatusOK
 		return nil
 	}
 
 	if err := db.ClearAuth(); err != nil {
-		return fmt.Errorf("failed to clear credentials: %w", err)
+		return helpers.FailInternal(transaction, fmt.Errorf("failed to clear credentials: %w", err))
 	}
 
-	fmt.Fprintln(os.Stderr, "Successfully logged out.")
+	logger.InfoContext(cmd.Context(), "credentials cleared")
+	helpers.PrintMessage(cmd, "Successfully logged out.")
+
+	transaction.Status = sentry.SpanStatusOK
 	return nil
 }

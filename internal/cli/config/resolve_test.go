@@ -9,11 +9,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/kula-app/ship/internal/cli/api"
 	"github.com/kula-app/ship/internal/cli/auth"
 	"github.com/kula-app/ship/internal/cli/db"
 )
 
-func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
+func TestResolveCredentialsRefreshesExpiredCredentials(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	var serverURL string
@@ -73,10 +74,11 @@ func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
 		t.Fatalf("set expired auth token: %v", err)
 	}
 
-	client, err := AuthenticatedClient(testRootCommand(""))
+	credentials, err := ResolveCredentials(testRootCommand(""))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	body, err := client.Get("/resource")
 	if err != nil {
@@ -92,22 +94,22 @@ func TestAuthenticatedClientRefreshesExpiredCredentials(t *testing.T) {
 		t.Fatal("expected resource request with refreshed token")
 	}
 
-	credentials, err := db.GetAuthCredentials()
+	stored, err := db.GetAuthCredentials()
 	if err != nil {
 		t.Fatalf("get refreshed credentials: %v", err)
 	}
-	if credentials == nil {
+	if stored == nil {
 		t.Fatal("expected refreshed credentials to be stored")
 	}
-	if credentials.AccessToken != "new-access-token" {
-		t.Fatalf("stored access token = %q, want new-access-token", credentials.AccessToken)
+	if stored.AccessToken != "new-access-token" {
+		t.Fatalf("stored access token = %q, want new-access-token", stored.AccessToken)
 	}
-	if credentials.RefreshToken != "new-refresh-token" {
-		t.Fatalf("stored refresh token = %q, want new-refresh-token", credentials.RefreshToken)
+	if stored.RefreshToken != "new-refresh-token" {
+		t.Fatalf("stored refresh token = %q, want new-refresh-token", stored.RefreshToken)
 	}
 }
 
-func TestAuthenticatedClientUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
+func TestResolveCredentialsUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -128,10 +130,11 @@ func TestAuthenticatedClientUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
 
 	t.Setenv("SHIP_API_URL", server.URL)
 
-	client, err := AuthenticatedClient(testRootCommand(""))
+	credentials, err := ResolveCredentials(testRootCommand(""))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	if _, err := client.Get("/resource"); err != nil {
 		t.Fatalf("get resource: %v", err)
@@ -141,7 +144,7 @@ func TestAuthenticatedClientUsesEnvAPIKeyWhenNoSessionExists(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedClientAPIKeyFlagOverridesEnv(t *testing.T) {
+func TestResolveCredentialsAPIKeyFlagOverridesEnv(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -159,10 +162,11 @@ func TestAuthenticatedClientAPIKeyFlagOverridesEnv(t *testing.T) {
 
 	t.Setenv("SHIP_API_URL", server.URL)
 
-	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
+	credentials, err := ResolveCredentials(testRootCommand("flag-api-key"))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	if _, err := client.Get("/resource"); err != nil {
 		t.Fatalf("get resource: %v", err)
@@ -172,7 +176,7 @@ func TestAuthenticatedClientAPIKeyFlagOverridesEnv(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefreshToken(t *testing.T) {
+func TestResolveCredentialsUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefreshToken(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -197,10 +201,11 @@ func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefresh
 
 	t.Setenv("SHIP_API_URL", server.URL)
 
-	client, err := AuthenticatedClient(testRootCommand(""))
+	credentials, err := ResolveCredentials(testRootCommand(""))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	if _, err := client.Get("/resource"); err != nil {
 		t.Fatalf("get resource: %v", err)
@@ -210,7 +215,7 @@ func TestAuthenticatedClientUsesAPIKeyWhenStoredCredentialsExpiredWithoutRefresh
 	}
 }
 
-func TestAuthenticatedClientSessionTakesPrecedenceOverEnvAPIKey(t *testing.T) {
+func TestResolveCredentialsSessionTakesPrecedenceOverEnvAPIKey(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -235,10 +240,11 @@ func TestAuthenticatedClientSessionTakesPrecedenceOverEnvAPIKey(t *testing.T) {
 
 	t.Setenv("SHIP_API_URL", server.URL)
 
-	client, err := AuthenticatedClient(testRootCommand(""))
+	credentials, err := ResolveCredentials(testRootCommand(""))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	if _, err := client.Get("/resource"); err != nil {
 		t.Fatalf("get resource: %v", err)
@@ -248,7 +254,7 @@ func TestAuthenticatedClientSessionTakesPrecedenceOverEnvAPIKey(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedClientAPIKeyFlagOverridesSession(t *testing.T) {
+func TestResolveCredentialsAPIKeyFlagOverridesSession(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("SHIP_API_KEY", "env-api-key")
 	defer db.CloseDB()
@@ -273,10 +279,11 @@ func TestAuthenticatedClientAPIKeyFlagOverridesSession(t *testing.T) {
 
 	t.Setenv("SHIP_API_URL", server.URL)
 
-	client, err := AuthenticatedClient(testRootCommand("flag-api-key"))
+	credentials, err := ResolveCredentials(testRootCommand("flag-api-key"))
 	if err != nil {
-		t.Fatalf("authenticated client: %v", err)
+		t.Fatalf("resolve credentials: %v", err)
 	}
+	client := newTestClient(credentials)
 
 	if _, err := client.Get("/resource"); err != nil {
 		t.Fatalf("get resource: %v", err)
@@ -420,6 +427,15 @@ func testAppCommand() *cobra.Command {
 	cmd.Flags().String("app-id", "", "App ID")
 	cmd.Flags().String("app-slug", "", "App slug")
 	return cmd
+}
+
+// newTestClient builds an API client from resolved credentials, mirroring the
+// selection the dependency container performs for commands.
+func newTestClient(credentials *Credentials) *api.Client {
+	if credentials.IsAPIKey() {
+		return api.NewAPIKeyClient(credentials.APIURL, credentials.APIKey)
+	}
+	return api.NewClient(credentials.APIURL, credentials.AccessToken)
 }
 
 func testRootCommand(apiKey string) *cobra.Command {

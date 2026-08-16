@@ -1,36 +1,37 @@
 package cmd_publish
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/spf13/cobra"
 
+	"github.com/kula-app/ship/internal/cli/bootstrap"
 	"github.com/kula-app/ship/internal/cli/config"
+	"github.com/kula-app/ship/internal/cli/helpers"
+	"github.com/kula-app/ship/internal/cli/service"
 )
 
-type publishJobRequest struct {
-	Platforms []string `json:"platforms,omitempty"`
-}
-
-type publishJobResponse struct {
-	JobID string `json:"job_id"`
-	IsNew bool   `json:"is_new"`
+// PublishCommandsDeps declares the dependencies shared by the publish subcommands.
+type PublishCommandsDeps interface {
+	bootstrap.LoggerFactory
+	service.ShipServiceFactory
 }
 
 // NewPublishCmd creates and returns the publish command with all subcommands.
-func NewPublishCmd(cliName string) *cobra.Command {
+func NewPublishCmd(cliName string, deps PublishCommandsDeps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "publish",
 		Short: "Publish an app",
 		Long:  `Trigger a full publish workflow for a Shipable app. Use subcommands for partial publishes.`,
-		Example: fmt.Sprintf(`  %s publish --app-id <uuid>
-  %s publish --app-slug <slug> --platform ios
-  %s publish metadata --app-id <uuid>`, cliName, cliName, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runPublish(c)
-		},
+		Example: fmt.Sprintf(`  # Publish everything
+  %[1]s publish --app-id <uuid>
+
+  # Publish a single platform
+  %[1]s publish --app-slug <slug> --platform ios
+
+  # Publish only the metadata
+  %[1]s publish metadata --app-id <uuid>`, cliName),
 	}
 
 	cmd.PersistentFlags().String("app-id", "", "App ID (UUID); env: SHIP_APP_ID")
@@ -38,112 +39,92 @@ func NewPublishCmd(cliName string) *cobra.Command {
 	cmd.PersistentFlags().StringSlice("platform", nil, "Target platforms (ios, android); omit for all")
 	cmd.MarkFlagsMutuallyExclusive("app-id", "app-slug")
 
-	cmd.AddCommand(newMetadataCmd(cliName))
-	cmd.AddCommand(newScreenshotsCmd(cliName))
-	cmd.AddCommand(newAppCmd(cliName))
-	cmd.AddCommand(newStatusCmd(cliName))
-	cmd.AddCommand(newValidateCmd(cliName))
+	cmd.AddCommand(newMetadataCmd(cliName, deps))
+	cmd.AddCommand(newScreenshotsCmd(cliName, deps))
+	cmd.AddCommand(newAppCmd(cliName, deps))
+	cmd.AddCommand(newStatusCmd(cliName, deps))
+	cmd.AddCommand(newValidateCmd(cliName, deps))
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return runPublish(cmd, deps, cliName)
+	}
 
 	return cmd
 }
 
-func runPublish(c *cobra.Command) error {
-	appID, err := config.ResolveAppIdentifier(c)
-	if err != nil {
-		return err
-	}
-
-	client, err := config.AuthenticatedClient(c)
-	if err != nil {
-		return err
-	}
-
-	platforms, _ := c.Flags().GetStringSlice("platform")
-	body, err := client.Post(
-		fmt.Sprintf("/api/app/%s/publish", appID),
-		publishJobRequest{Platforms: platforms},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to trigger publish: %w", err)
-	}
-
-	return printJobResponse(c, body)
+func runPublish(cmd *cobra.Command, deps PublishCommandsDeps, cliName string) error {
+	return runPublishJob(cmd, deps, fmt.Sprintf("%s publish", cliName), "publish",
+		func(svc *service.ShipService, appID string, platforms []string) (*service.PublishJobResult, []byte, error) {
+			return svc.TriggerPublish(cmd.Context(), appID, platforms)
+		})
 }
 
-func newMetadataCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
-		Use:     "metadata",
-		Short:   "Publish metadata only",
-		Example: fmt.Sprintf(`  %s publish metadata --app-id <uuid>`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "metadata")
-		},
-	}
-}
+// runPublishJob carries the flow shared by every publish variant: resolve the
+// app and credentials, trigger the job through the service, then report it.
+func runPublishJob(
+	cmd *cobra.Command,
+	deps PublishCommandsDeps,
+	transactionName string,
+	variant string,
+	trigger func(svc *service.ShipService, appID string, platforms []string) (*service.PublishJobResult, []byte, error),
+) error {
+	// Start root Sentry transaction for CLI command
+	transaction := helpers.StartCommandTransaction(cmd, transactionName)
+	transaction.SetData("command", "publish."+variant)
+	transaction.SetData("variant", variant)
+	defer transaction.Finish()
 
-func newScreenshotsCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
-		Use:     "screenshots",
-		Short:   "Publish screenshots only",
-		Example: fmt.Sprintf(`  %s publish screenshots --app-id <uuid>`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "screenshots")
-		},
-	}
-}
+	ctx := cmd.Context()
+	logger := deps.GetLogger()
 
-func newAppCmd(cliName string) *cobra.Command {
-	return &cobra.Command{
-		Use:     "app",
-		Short:   "Publish app binary only",
-		Example: fmt.Sprintf(`  %s publish app --app-id <uuid>`, cliName),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runPartialPublish(c, "app")
-		},
-	}
-}
-
-func runPartialPublish(c *cobra.Command, variant string) error {
-	appID, err := config.ResolveAppIdentifier(c)
+	// Get log format from global flag
+	outputJSON, err := helpers.ResolveLogFormat(cmd)
 	if err != nil {
-		return err
+		return helpers.FailInvalidArgument(transaction, err)
 	}
+	transaction.SetData("output_json", outputJSON)
 
-	client, err := config.AuthenticatedClient(c)
+	appID, err := config.ResolveAppIdentifier(cmd)
 	if err != nil {
-		return err
+		return helpers.FailInvalidArgument(transaction, err)
 	}
+	transaction.SetData("app_id", appID)
 
-	platforms, _ := c.Flags().GetStringSlice("platform")
-	body, err := client.Post(
-		fmt.Sprintf("/api/app/%s/publish/%s", appID, variant),
-		publishJobRequest{Platforms: platforms},
-	)
+	platforms, err := cmd.Flags().GetStringSlice("platform")
 	if err != nil {
-		return fmt.Errorf("failed to trigger %s publish: %w", variant, err)
+		return helpers.FailInvalidArgument(transaction, fmt.Errorf("failed to get platform flag: %w", err))
+	}
+	transaction.SetData("platforms", platforms)
+
+	// Get API credentials
+	logger.InfoContext(ctx, "retrieving API credentials")
+	svc, credentials, err := helpers.ResolveShipService(cmd, deps)
+	if err != nil {
+		return helpers.FailUnauthenticated(transaction, err)
+	}
+	transaction.SetData("api_url", credentials.APIURL)
+
+	result, body, err := trigger(svc, appID, platforms)
+	if err != nil {
+		return helpers.FailInternal(transaction, err)
+	}
+	transaction.SetData("job_id", result.JobID)
+	transaction.SetData("is_new", result.IsNew)
+
+	// Output final result
+	if outputJSON {
+		transaction.Status = sentry.SpanStatusOK
+		return helpers.OutputJSON(cmd, body)
 	}
 
-	return printJobResponse(c, body)
-}
-
-func printJobResponse(c *cobra.Command, body []byte) error {
-	logFormat, _ := c.Flags().GetString("log-format")
-	if logFormat == "json" {
-		fmt.Fprintln(os.Stdout, string(body))
-		return nil
-	}
-
-	var resp publishJobResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if resp.IsNew {
-		fmt.Fprintf(os.Stderr, "Publish job created: %s\n", resp.JobID)
+	// Text output
+	if result.IsNew {
+		helpers.PrintMessage(cmd, "Publish job created: %s", result.JobID)
 	} else {
-		fmt.Fprintf(os.Stderr, "Publish job already in progress: %s\n", resp.JobID)
+		helpers.PrintMessage(cmd, "Publish job already in progress: %s", result.JobID)
 	}
+	fmt.Fprintln(cmd.OutOrStdout(), result.JobID)
 
-	fmt.Fprintln(os.Stdout, resp.JobID)
+	transaction.Status = sentry.SpanStatusOK
 	return nil
 }
