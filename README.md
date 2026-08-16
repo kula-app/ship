@@ -64,6 +64,27 @@ ship publish --app-id <uuid>
 
 All publish commands accept `--platform ios,android` to target specific platforms.
 
+### Raw API Access
+
+| Command               | Description                       |
+| --------------------- | --------------------------------- |
+| `ship api <endpoint>` | Make an authenticated API request |
+
+The endpoint is relative to `/api/` — the prefix is added automatically. Works like `gh api`:
+
+```bash
+ship api apps/                                        # GET /api/apps/
+ship api apps/ -F limit=10                            # field flags become query params on GET
+ship api app/<id>/publish -X POST -F platforms[]=ios  # and a JSON body on other methods
+ship api app/<id>/publish -X POST -d '{"platforms":["ios"]}'
+ship api app/<id>/publish -X POST -i body.json        # body from a file, or "-" for stdin
+```
+
+Use `-F/--field` for values parsed as JSON (`key=value`, `key[sub]=value`, `key[]=value`, `key[]`),
+`-f/--raw-field` to send them as plain strings, `-H/--header` to add request headers, `--verbose`
+for a curl-style request/response transcript, `--silent` to drop the response body, and
+`-n/--dry-run` to print the resolved request without sending it.
+
 Use `--log-format json` on any command for machine-readable JSON output.
 
 ## Development
