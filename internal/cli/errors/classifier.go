@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/getsentry/sentry-go"
@@ -122,6 +123,10 @@ func matchesUserErrorPattern(event *sentry.Event) bool {
 
 // isUserErrorMessage checks if a message indicates a user error.
 func isUserErrorMessage(msg string) bool {
+	if isCLIUsageErrorMessage(msg) {
+		return true
+	}
+
 	userErrorPatterns := []string{
 		"invalid log format",
 		"must be 'text' or 'json'",
@@ -137,16 +142,54 @@ func isUserErrorMessage(msg string) bool {
 		"invalid API endpoint",
 		"cannot use --data",
 		"file not found",
-		"required flag",
 		"missing required",
-		"invalid argument",
 		"invalid flag",
-		"accepts 1 arg(s)",
 	}
 
 	lowerMsg := strings.ToLower(msg)
 	for _, pattern := range userErrorPatterns {
 		if strings.Contains(lowerMsg, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+const (
+	goDoubleQuotedValue = `"(?:[^"\\]|\\.)*"`
+	goSingleQuotedValue = `'(?:[^'\\]|\\.)*'`
+	pflagUsageError     = `(?:unknown flag: --.*|unknown shorthand flag: ` + goSingleQuotedValue + ` in -.*|flag needs an argument: (?:--.*|` + goSingleQuotedValue + ` in -.*)|invalid argument ` + goDoubleQuotedValue + ` for ` + goDoubleQuotedValue + ` flag: (?s:.*)|bad flag syntax: .*)`
+)
+
+var cliUsageErrorPatterns = []*regexp.Regexp{
+	// Cobra command and positional argument validation. Go-quoted values may
+	// be empty and may contain escaped quotes or spaces.
+	regexp.MustCompile(`^unknown command ` + goDoubleQuotedValue + ` for ` + goDoubleQuotedValue + `(?:\n\nDid you mean this\?(?:\n\t[^\n]*)+)?$`),
+	regexp.MustCompile(`^invalid argument ` + goDoubleQuotedValue + ` for ` + goDoubleQuotedValue + `(?:\n\nDid you mean this\?(?:\n\t[^\n]*)+)?$`),
+	regexp.MustCompile(`^(?:requires at least [0-9]+ arg\(s\), only received [0-9]+|accepts at most [0-9]+ arg\(s\), received [0-9]+|accepts [0-9]+ arg\(s\), received [0-9]+|accepts between [0-9]+ and [0-9]+ arg\(s\), received [0-9]+)$`),
+
+	// Cobra required flags and flag-group validation.
+	regexp.MustCompile(`^required flag\(s\) ` + goDoubleQuotedValue + `(?:, ` + goDoubleQuotedValue + `)* not set$`),
+	regexp.MustCompile(`^if any flags in the group \[.*\] are set they must all be set; missing \[.*\]$`),
+	regexp.MustCompile(`^at least one of the flags in the group \[.*\] is required$`),
+	regexp.MustCompile(`^if any flags in the group \[.*\] are set none of the others can be; \[.*\] were all set$`),
+
+	// Cobra completion command lookup and completion-time flag parsing.
+	regexp.MustCompile(`^unable to find a command for arguments: \[(?s:.*)\]$`),
+	regexp.MustCompile(`^Error while parsing flags from args \[(?s:.*)\]: ` + pflagUsageError + `$`),
+
+	// pflag parsing and value validation.
+	regexp.MustCompile(`^` + pflagUsageError + `$`),
+}
+
+// isCLIUsageErrorMessage recognizes anchored errors emitted by Cobra and pflag
+// while parsing or validating user input. Anchoring avoids filtering runtime
+// errors that merely contain generic CLI-related phrases.
+func isCLIUsageErrorMessage(msg string) bool {
+	trimmedMsg := strings.TrimSpace(msg)
+	for _, pattern := range cliUsageErrorPatterns {
+		if pattern.MatchString(trimmedMsg) {
 			return true
 		}
 	}
