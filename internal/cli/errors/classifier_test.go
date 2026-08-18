@@ -334,6 +334,36 @@ func TestIsCLIUsageErrorMessage_OtherUpstreamMessages(t *testing.T) {
 	}
 }
 
+func TestIsCLIUsageErrorMessage_CompletionFlagParsing(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		want    bool
+	}{
+		{
+			name:    "nested pflag invalid value cause contains completion delimiter",
+			message: `Error while parsing flags from args [--format]: invalid argument "bad" for "--format" flag: rejected]: database unavailable`,
+			want:    true,
+		},
+		{
+			name:    "nested suffix is only a runtime error",
+			message: `Error while parsing flags from args [--format]: rejected]: database unavailable`,
+			want:    false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := isCLIUsageErrorMessage(test.message); got != test.want {
+				t.Errorf("isCLIUsageErrorMessage(%q) = %v, want %v", test.message, got, test.want)
+			}
+			if got := IsUserError(&sentry.Event{Message: test.message}); got != test.want {
+				t.Errorf("IsUserError(%q) = %v, want %v", test.message, got, test.want)
+			}
+		})
+	}
+}
+
 func TestIsUserError_UntracedInternalMessagesAreRetained(t *testing.T) {
 	tests := []string{
 		"database migration validation failed after schema introspection",
