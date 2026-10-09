@@ -12,7 +12,7 @@ require (
 	entgo.io/ent v0.14.6
 	github.com/getsentry/sentry-go v0.49.0
 	github.com/getsentry/sentry-go/slog v0.49.0
-	github.com/lmittmann/tint v1.2.0
+	github.com/lmittmann/tint v1.2.1
 	github.com/mattn/go-isatty v0.0.24
 	github.com/olekukonko/tablewriter v1.1.5
 	github.com/spf13/cobra v1.10.2
