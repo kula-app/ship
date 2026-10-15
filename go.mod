@@ -10,8 +10,8 @@ tool (
 
 require (
 	entgo.io/ent v0.14.6
-	github.com/getsentry/sentry-go v0.49.0
-	github.com/getsentry/sentry-go/slog v0.49.0
+	github.com/getsentry/sentry-go v0.50.0
+	github.com/getsentry/sentry-go/slog v0.50.0
 	github.com/lmittmann/tint v1.2.0
 	github.com/mattn/go-isatty v0.0.24
 	github.com/olekukonko/tablewriter v1.1.5
@@ -54,7 +54,7 @@ require (
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260908163034-4bcc4b2ee518 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/tools v0.50.0 // indirect
 	golang.org/x/vuln v1.8.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
