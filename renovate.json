@@ -31,23 +31,6 @@
       ]
     },
     {
-      "description": "Pulumi SDKs and providers are auto-generated and released almost daily, so bundle all non-major Pulumi updates (Go SDKs, providers, CLI, and GitHub Actions) into one weekly PR",
-      "groupName": "weekly pulumi updates",
-      "groupSlug": "weekly-pulumi-updates",
-      "matchPackageNames": [
-        "github.com/pulumi/**",
-        "pulumi/**",
-        "@pulumi/**",
-        "pulumi",
-        "pulumi-*"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch",
-        "digest"
-      ]
-    },
-    {
       "automerge": true,
       "description": "Keep the Go version in go.mod up to date automatically, together with the golang Docker image",
       "groupName": "go toolchain",
