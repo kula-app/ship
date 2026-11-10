@@ -35,7 +35,7 @@ func run(ctx context.Context, _ []string, getenv func(key string) string, _ *os.
 			Environment:          metadata.Environment,
 			Release:              metadata.Release,
 			AttachStacktrace:     true,
-			SendDefaultPII:       true,
+			DataCollection:       &sentry.DataCollection{},
 			SampleRate:           1.0,
 			EnableTracing:        true,
 			TracesSampleRate:     1.0,
