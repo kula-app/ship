@@ -7,53 +7,72 @@
   "keepUpdatedLabel": "renovate:keep-updated",
   "lockFileMaintenance": {
     "automerge": true,
-    "enabled": true,
-    "extends": [
-      "schedule:weekly"
-    ]
+    "enabled": true
   },
   "minimumReleaseAge": "7 days",
+  "osvVulnerabilityAlerts": true,
   "packageRules": [
     {
       "automerge": false,
+      "dependencyDashboardApproval": true,
+      "description": "Require dashboard approval for major updates",
       "matchUpdateTypes": [
         "major"
       ]
     },
     {
-      "description": "Keep Go version in go.mod up to date automatically",
-      "matchManagers": [
-        "gomod"
-      ],
+      "description": "Group all minor, patch, and digest updates into one weekly PR",
+      "groupName": "weekly non-major updates",
+      "groupSlug": "weekly-non-major-updates",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "digest"
+      ]
+    },
+    {
+      "automerge": true,
+      "description": "Keep the Go version in go.mod up to date automatically, together with the golang Docker image",
+      "groupName": "go toolchain",
       "matchDepNames": [
         "go"
       ],
       "matchDepTypes": [
         "golang"
       ],
+      "matchManagers": [
+        "gomod"
+      ],
       "minimumReleaseAge": "0 days",
       "prPriority": 10,
-      "rangeStrategy": "bump",
-      "automerge": true
+      "rangeStrategy": "bump"
     },
     {
+      "automerge": true,
       "description": "Group Go toolchain updates (golang Docker image + go directive in go.mod) into a single PR",
       "groupName": "go toolchain",
-      "matchDatasources": ["docker", "golang-version"],
-      "matchDepNames": ["go", "golang"],
+      "matchDatasources": [
+        "docker",
+        "golang-version"
+      ],
+      "matchDepNames": [
+        "go",
+        "golang"
+      ],
       "minimumReleaseAge": "0 days",
-      "prPriority": 10,
-      "automerge": true
+      "prPriority": 10
     },
     {
-      "description": "Group getsentry/sentry-go module and submodules into a single PR",
+      "automerge": true,
+      "description": "Group Sentry Go modules",
       "groupName": "sentry-go",
-      "matchManagers": ["gomod"],
+      "matchManagers": [
+        "gomod"
+      ],
       "matchPackageNames": [
         "github.com/getsentry/sentry-go",
         "github.com/getsentry/sentry-go/**"
-      ],
-      "automerge": true
+      ]
     }
   ],
   "postUpdateOptions": [
@@ -61,6 +80,18 @@
     "gomodUpdateImportPaths"
   ],
   "rebaseLabel": "renovate:rebase",
+  "schedule": [
+    "* 1-4 * * 1"
+  ],
   "stopUpdatingLabel": "renovate:disabled",
-  "timezone": "Europe/Vienna"
+  "timezone": "Europe/Vienna",
+  "updateNotScheduled": false,
+  "vulnerabilityAlerts": {
+    "dependencyDashboardApproval": false,
+    "enabled": true,
+    "minimumReleaseAge": null,
+    "schedule": [
+      "at any time"
+    ]
+  }
 }
